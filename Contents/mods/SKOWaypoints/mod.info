@@ -3,3 +3,4 @@ id=SKOWaypoints
 description=Inserta Waypoints a los cuales podras teletransportarte luego de haberlos colocado.
 author=ShekoGaming
 modversion=1.0
+require=SKOLib

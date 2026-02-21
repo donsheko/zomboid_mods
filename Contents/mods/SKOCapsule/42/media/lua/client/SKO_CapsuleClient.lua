@@ -120,112 +120,12 @@ function processVehicleInventory(container, partId)
 
     for j = 0, container:getItems():size() - 1 do
         local item = container:getItems():get(j)
-        inventario.items[j+1] = {
-            type = item:getFullType(),
-            condition = item:getCondition(),
-            customData = getItemCustomData(item),
-            inventario = {}
-        }
-
-        if item:IsInventoryContainer() then
-            inventario.items[j+1].inventario = processInventoryContainer(item)
+        if item then
+            -- Nueva libreria global SKOLib
+            table.insert(inventario.items, SKOLib.Serializer.serializeItemData(item))
         end
     end
     return inventario
-end
-
-function processInventoryContainer(item)
-    local container = item:getInventory()
-    local itemsInContainer = {}
-    for i = 0, container:getItems():size() - 1 do
-        local itemC = container:getItems():get(i)
-        itemsInContainer[i+1] = {
-            type = itemC:getFullType(),
-            condition = itemC:getCondition(),
-            customData = getItemCustomData(itemC),
-            inventario = {}
-        }
-
-        if itemC:IsInventoryContainer() then
-            itemsInContainer[i+1].inventario = processInventoryContainer(itemC)
-        end
-    end
-    return itemsInContainer
-end
-
-local function getItemDataForPart(partItem)
-    if not partItem then return nil end
-    return {
-        type = partItem:getFullType(),
-        condition = partItem:getCondition(),
-        customData = getItemCustomData(partItem)
-    }
-end
-
-function getItemCustomData(item)
-    local customData = {
-        uses = nil,
-        ammo = nil,
-        food = nil,
-        parts = nil,
-        modData = nil
-    }
-
-    if instanceof(item, "DrainableComboItem") then
-        if type(item.getCurrentUsesFloat) == "function" then
-            customData.uses = item:getCurrentUsesFloat()
-        elseif type(item.getUsedDelta) == "function" then
-            customData.uses = item:getUsedDelta()
-        end
-    end
-
-    if instanceof(item, "HandWeapon") then
-        customData.ammo = item:getCurrentAmmoCount()
-        customData.parts = {}
-        if type(item.getWeaponPart) == "function" then
-            local pScope = item:getWeaponPart("Scope")
-            if pScope then customData.parts.Scope = getItemDataForPart(pScope) end
-            local pClip = item:getWeaponPart("Clip")
-            if pClip then customData.parts.Clip = getItemDataForPart(pClip) end
-            local pSling = item:getWeaponPart("Sling")
-            if pSling then customData.parts.Sling = getItemDataForPart(pSling) end
-            local pStock = item:getWeaponPart("Stock")
-            if pStock then customData.parts.Stock = getItemDataForPart(pStock) end
-            local pCanon = item:getWeaponPart("Canon")
-            if pCanon then customData.parts.Canon = getItemDataForPart(pCanon) end
-            local pRecoilpad = item:getWeaponPart("RecoilPad")
-            if pRecoilpad then customData.parts.Recoilpad = getItemDataForPart(pRecoilpad) end
-        end
-    end
-
-    if instanceof(item, "Food") then
-        customData.food = {
-            hungerChange = item:getHungChange(),
-            thirst = item:getThirstChange(),
-            boredom = item:getBoredomChange(),
-            unhappy = item:getUnhappyChange(),
-            carbs = item:getCarbohydrates(),
-            lipids = item:getLipids(),
-            proteins = item:getProteins(),
-            calories = item:getCalories(),
-            cooked = item:isCooked(),
-            burn = item:isBurnt(),
-            freshness = item:getAge(),
-            rotten = item:isRotten(),
-        }
-    end
-
-    local itemModData = item:getModData()
-    if itemModData then
-        customData.modData = {}
-        for k,v in pairs(itemModData) do
-            if type(v) ~= "userdata" and type(v) ~= "function" then
-                customData.modData[k] = v
-            end
-        end
-    end
-
-    return customData
 end
 
 function restoreVehicle(vehicleData, itemEquiped)
@@ -352,73 +252,42 @@ end
 
 function restoreItemsToContainer(container, items)
     for _, itemData in ipairs(items) do
-        local item = instanceItem(itemData.type)
-        if item then
-            setItemCustomData(item, itemData.customData)
-            item:setCondition(itemData.condition)
-            container:AddItem(item)
+        local item = nil
 
-            if itemData.inventario and #itemData.inventario > 0 then
-                local itemContainer = item:getInventory()
-                if itemContainer then
-                    print("Restaurando contenedor: " .. itemData.type)
-                    restoreItemsToContainer(itemContainer, itemData.inventario)
-                end
-            end
+        -- SOPORTE COMPATIBILIDAD SKOLIB vs CÁPSULA VIEJA
+        if itemData.fullType then
+            -- Nueva Cápsula generada bajo SKOLib Core
+            item = SKOLib.Serializer.deserializeItemData(itemData)
+            if item then container:AddItem(item) end
         else
-            print("No se pudo crear el item: " .. tostring(itemData.type))
-        end
-    end
-end
+            -- Código Legacy Cápsula Antigua para no romper Saves existentes del jugador
+            item = instanceItem(itemData.type)
+            if item then
+                if itemData.condition then item:setCondition(itemData.condition) end
+                
+                -- Variables vitales básicas legacy para evitar crashes sin el parseo viejo
+                local cData = itemData.customData
+                if cData then
+                    if cData.uses and instanceof(item, "DrainableComboItem") and type(item.setUsedDelta) == "function" then
+                        item:setUsedDelta(cData.uses)
+                    end
+                    if cData.ammo and instanceof(item, "HandWeapon") then
+                        item:setCurrentAmmoCount(cData.ammo)
+                    end
+                end
 
-local function restoreItemForPart(partData)
-    if not partData then return nil end
-    local newItem = instanceItem(partData.type)
-    if not newItem then return nil end
-    if partData.condition then newItem:setCondition(partData.condition) end
-    setItemCustomData(newItem, partData.customData)
-    return newItem
-end
+                container:AddItem(item)
 
-function setItemCustomData(item, customData)
-    if not customData then return end
-
-    if customData.uses and instanceof(item, "DrainableComboItem") then
-        if type(item.setUsedDelta) == "function" then
-            item:setUsedDelta(customData.uses)
-        end
-    end
-    if customData.ammo and instanceof(item, "HandWeapon") then
-        item:setCurrentAmmoCount(customData.ammo)
-        if customData.parts and type(item.attachWeaponPart) == "function" then
-            if customData.parts.Scope then item:attachWeaponPart(restoreItemForPart(customData.parts.Scope)) end
-            if customData.parts.Clip then item:attachWeaponPart(restoreItemForPart(customData.parts.Clip)) end
-            if customData.parts.Sling then item:attachWeaponPart(restoreItemForPart(customData.parts.Sling)) end
-            if customData.parts.Stock then item:attachWeaponPart(restoreItemForPart(customData.parts.Stock)) end
-            if customData.parts.Canon then item:attachWeaponPart(restoreItemForPart(customData.parts.Canon)) end
-            if customData.parts.Recoilpad then item:attachWeaponPart(restoreItemForPart(customData.parts.Recoilpad)) end
-        end
-    end
-
-    if customData.food and instanceof(item, "Food") then
-        if customData.food.hungerChange then item:setHungChange(customData.food.hungerChange) end
-        if customData.food.thirst then item:setThirstChange(customData.food.thirst) end
-        if customData.food.boredom then item:setBoredomChange(customData.food.boredom) end
-        if customData.food.unhappy then item:setUnhappyChange(customData.food.unhappy) end
-        if customData.food.carbs then item:setCarbohydrates(customData.food.carbs) end
-        if customData.food.lipids then item:setLipids(customData.food.lipids) end
-        if customData.food.proteins then item:setProteins(customData.food.proteins) end
-        if customData.food.calories then item:setCalories(customData.food.calories) end
-        if customData.food.cooked ~= nil then item:setCooked(customData.food.cooked) end
-        if customData.food.burn ~= nil then item:setBurnt(customData.food.burn) end
-        if customData.food.freshness then item:setAge(customData.food.freshness) end
-        if customData.food.rotten ~= nil then item:setRotten(customData.food.rotten) end
-    end
-
-    if customData.modData then
-        local mData = item:getModData()
-        for k,v in pairs(customData.modData) do
-            mData[k] = v
+                if itemData.inventario and #itemData.inventario > 0 then
+                    local itemContainer = item:getInventory()
+                    if itemContainer then
+                        print("Restaurando contenedor legacy: " .. itemData.type)
+                        restoreItemsToContainer(itemContainer, itemData.inventario)
+                    end
+                end
+            else
+                print("No se pudo crear el item: " .. tostring(itemData.type))
+            end
         end
     end
 end
