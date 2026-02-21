@@ -138,30 +138,42 @@ function getItemCustomData(item)
         ammo = nil,
         food = nil,
     }
-    if item:IsDrainable() then
-        customData.uses = item:getUsedDelta()
-    end
-    if item:IsWeapon() then
-        customData.ammo = item:getCurrentAmmoCount()
-    end
-    if item:IsFood() then
-        customData.food = {
-            hungerChange = item:getHungChange(),
-            thirst = item:getThirstChange(),
-            boredom = item:getBoredomChange(),
-            unhappy = item:getUnhappyChange(),
-            carbs = item:getCarbohydrates(),
-            lipids = item:getLipids(),
-            proteins = item:getProteins(),
-            calories = item:getCalories(),
-            tained = item:isTaintedWater(),
 
-            cooked = item:isCooked(),
-            burn = item:isBurnt(),
-            freshness = item:getAge(),
-            rotten = item:isRotten(),
-        }
+    local ok, isDrainable = pcall(function() return item:IsDrainable() end)
+    if ok and isDrainable then
+        local ok2, val = pcall(function() return item:getUsedDelta() end)
+        if ok2 then customData.uses = val end
     end
+
+    local ok, isWeapon = pcall(function() return item:IsWeapon() end)
+    if ok and isWeapon then
+        local ok2, val = pcall(function() return item:getCurrentAmmoCount() end)
+        if ok2 then customData.ammo = val end
+    end
+
+    local ok, isFood = pcall(function() return item:IsFood() end)
+    if ok and isFood then
+        local foodData = {}
+        local function safeFoodGet(key, func)
+            local s, v = pcall(func)
+            foodData[key] = s and v or nil
+        end
+        safeFoodGet("hungerChange", function() return item:getHungChange() end)
+        safeFoodGet("thirst", function() return item:getThirstChange() end)
+        safeFoodGet("boredom", function() return item:getBoredomChange() end)
+        safeFoodGet("unhappy", function() return item:getUnhappyChange() end)
+        safeFoodGet("carbs", function() return item:getCarbohydrates() end)
+        safeFoodGet("lipids", function() return item:getLipids() end)
+        safeFoodGet("proteins", function() return item:getProteins() end)
+        safeFoodGet("calories", function() return item:getCalories() end)
+        safeFoodGet("tained", function() return item:isTaintedWater() end)
+        safeFoodGet("cooked", function() return item:isCooked() end)
+        safeFoodGet("burn", function() return item:isBurnt() end)
+        safeFoodGet("freshness", function() return item:getAge() end)
+        safeFoodGet("rotten", function() return item:isRotten() end)
+        customData.food = foodData
+    end
+
     return customData
 end
 
@@ -183,49 +195,54 @@ function restoreVehicle(vehicleData, itemEquiped)
             vehicle:setColorHSV(vehicleData.color.h, vehicleData.color.s, vehicleData.color.v)
         end
     end
-    if vehicleData.parts then
+    if vehicle and vehicleData.parts then
         for i = 1, vehicle:getPartCount() do
             local part = vehicle:getPartByIndex(i - 1)
             if part then
                 local partData = vehicleData.parts[part:getId()]
-                local condition = partData.condition
-                if partData.hasItem and partData.item then
-                    part:setInventoryItem(partData.item)
-                end
-                -- verificamos si vehicleData.inventory[part:getId()].capacity esta definido
-                if vehicleData.inventory[part:getId()] then
-                    part:setContainerCapacity(vehicleData.inventory[part:getId()].capacity)
-                end
+                if partData then
+                    local condition = partData.condition
+                    if partData.hasItem and partData.item then
+                        pcall(function() part:setInventoryItem(partData.item) end)
+                    end
+                    -- verificamos si vehicleData.inventory[part:getId()].capacity esta definido
+                    if vehicleData.inventory[part:getId()] then
+                        pcall(function() part:setContainerCapacity(vehicleData.inventory[part:getId()].capacity) end)
+                    end
 
-                if condition then
-                    if part:getId() == "GasTank" then
-                        part:setContainerCapacity(vehicleData.fuelCapacity)
-                        part:setContainerContentAmount(vehicleData.fuel)
-                    end
-                    if part:getId() == "Battery" then
-                        local battery = part:getInventoryItem()
-                        if battery then
-                            battery:setUsedDelta(vehicleData.batteryCharge)
+                    if condition then
+                        if part:getId() == "GasTank" then
+                            pcall(function() part:setContainerCapacity(vehicleData.fuelCapacity) end)
+                            pcall(function() part:setContainerContentAmount(vehicleData.fuel) end)
                         end
+                        if part:getId() == "Battery" then
+                            local battery = part:getInventoryItem()
+                            if battery then
+                                pcall(function() battery:setUsedDelta(vehicleData.batteryCharge) end)
+                            end
+                        end
+                        part:setCondition(condition)
+                        if not partData.hasItem then
+                            pcall(function() part:setInventoryItem(nil) end)
+                        end
+                    else
+                        part:setCondition(0)
+                        pcall(function() part:setInventoryItem(nil) end)
                     end
-                    part:setCondition(condition)
-                    if not partData.hasItem then
-                        part:setInventoryItem(nil)
-                    end
-                else
-                    part:setCondition(0)  -- Establecer la condición en 0 si no hay datos almacenados
-                    part:setInventoryItem(nil)
                 end
             end
         end
     end
     
     -- Restaurar los inventarios de los contenedores del vehiculo
-    if vehicleData.inventory then
+    if vehicle and vehicleData.inventory then
         for partId, partInventory in pairs(vehicleData.inventory) do
-            local container = vehicle:getPartById(partId):getItemContainer()
-            container:clear()
-            restoreItemsToContainer(container, partInventory.items)
+            local vPart = vehicle:getPartById(partId)
+            if vPart and vPart:getItemContainer() then
+                local container = vPart:getItemContainer()
+                container:clear()
+                restoreItemsToContainer(container, partInventory.items)
+            end
         end
     end
 
@@ -266,30 +283,33 @@ function restoreItemsToContainer(container, items)
 end
 
 function setItemCustomData(item, customData)
-    if customData then
-        if customData.uses then
-            item:setUsedDelta(customData.uses)
-        end
-        if customData.ammo then
-            item:setCurrentAmmoCount(customData.ammo)
-        end
+    if not customData then return end
 
-        if customData.food and item:IsFood() then
-            item:setHungChange(customData.food.hungerChange)
-            item:setThirstChange(customData.food.thirst)
-            item:setBoredomChange(customData.food.boredom)
-            item:setUnhappyChange(customData.food.unhappy)
-            item:setCarbohydrates(customData.food.carbs)
-            item:setLipids(customData.food.lipids)
-            item:setProteins(customData.food.proteins)
-            item:setCalories(customData.food.calories)
-            item:setTaintedWater(customData.food.tained)
+    if customData.uses then
+        pcall(function() item:setUsedDelta(customData.uses) end)
+    end
+    if customData.ammo then
+        pcall(function() item:setCurrentAmmoCount(customData.ammo) end)
+    end
 
-            item:setCooked(customData.food.cooked)
-            item:setBurnt(customData.food.burn)
-            item:setAge(customData.food.freshness)
-            item:setRotten(customData.food.rotten)
+    local ok, isFood = pcall(function() return item:IsFood() end)
+    if ok and isFood and customData.food then
+        local function safeSet(func)
+            pcall(func)
         end
+        if customData.food.hungerChange then safeSet(function() item:setHungChange(customData.food.hungerChange) end) end
+        if customData.food.thirst then safeSet(function() item:setThirstChange(customData.food.thirst) end) end
+        if customData.food.boredom then safeSet(function() item:setBoredomChange(customData.food.boredom) end) end
+        if customData.food.unhappy then safeSet(function() item:setUnhappyChange(customData.food.unhappy) end) end
+        if customData.food.carbs then safeSet(function() item:setCarbohydrates(customData.food.carbs) end) end
+        if customData.food.lipids then safeSet(function() item:setLipids(customData.food.lipids) end) end
+        if customData.food.proteins then safeSet(function() item:setProteins(customData.food.proteins) end) end
+        if customData.food.calories then safeSet(function() item:setCalories(customData.food.calories) end) end
+        if customData.food.tained ~= nil then safeSet(function() item:setTaintedWater(customData.food.tained) end) end
+        if customData.food.cooked ~= nil then safeSet(function() item:setCooked(customData.food.cooked) end) end
+        if customData.food.burn ~= nil then safeSet(function() item:setBurnt(customData.food.burn) end) end
+        if customData.food.freshness then safeSet(function() item:setAge(customData.food.freshness) end) end
+        if customData.food.rotten ~= nil then safeSet(function() item:setRotten(customData.food.rotten) end) end
     end
 end
 

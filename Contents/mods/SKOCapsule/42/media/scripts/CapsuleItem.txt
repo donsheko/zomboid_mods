@@ -7,26 +7,30 @@ module SKOCapsule
 
     item ContenedorVehiculos
     {
-        Type = Normal,
         DisplayCategory = Material,
+        ItemType = base:normal,
         Weight = 1.0,
         DisplayName = Contenedor de vehiculos,
         Icon = Capsula,
         MetalValue = 0,
     }
 
-    recipe Craftear Contenedor de Vehiculo
+    craftRecipe CraftearContenedorVehiculo
     {
-        keep HammerStone/Hammer/ClubHammer/BallPeenHammer/AxeStone,
-        keep Screwdriver,
-        keep Saw/GardenSaw,
-        SKOItems.MetalMoldeable=20,
-        Result:ContenedorVehiculos=1,
-        Time:15.0,
-        Category:SKO,
-        Prop1:Hammer,
-        Prop2:Screwdriver,
-        Sound:BlowTorch,
-        StopOnWalk:false,
+        timedAction = Making,
+        time = 150,
+        Tags = AnySurfaceCraft,
+        category = SKO,
+        inputs
+        {
+            item 1 tags[base:hammer] mode:keep flags[MayDegradeLight;Prop1],
+            item 1 [Base.Screwdriver] mode:keep flags[MayDegradeLight;Prop2],
+            item 1 tags[base:saw] mode:keep flags[MayDegradeLight],
+            item 20 [SKOItems.MetalMoldeable],
+        }
+        outputs
+        {
+            item 1 SKOCapsule.ContenedorVehiculos,
+        }
     }
 }
