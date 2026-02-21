@@ -65,7 +65,7 @@ function storeVehicleInContainer(vehicle, itemEquiped)
             if part:getId() == "Battery" then
                 local battery = part:getInventoryItem()
                 if battery then
-                    vehicleData.batteryCharge = battery:getUsedDelta()
+                    vehicleData.batteryCharge = battery:getCurrentUsesFloat()
                 end
             end
 
@@ -139,39 +139,30 @@ function getItemCustomData(item)
         food = nil,
     }
 
-    local ok, isDrainable = pcall(function() return item:IsDrainable() end)
-    if ok and isDrainable then
-        local ok2, val = pcall(function() return item:getUsedDelta() end)
-        if ok2 then customData.uses = val end
+    if instanceof(item, "DrainableComboItem") then
+        customData.uses = item:getCurrentUsesFloat()
     end
 
-    local ok, isWeapon = pcall(function() return item:IsWeapon() end)
-    if ok and isWeapon then
-        local ok2, val = pcall(function() return item:getCurrentAmmoCount() end)
-        if ok2 then customData.ammo = val end
+    if instanceof(item, "HandWeapon") then
+        customData.ammo = item:getCurrentAmmoCount()
     end
 
-    local ok, isFood = pcall(function() return item:IsFood() end)
-    if ok and isFood then
-        local foodData = {}
-        local function safeFoodGet(key, func)
-            local s, v = pcall(func)
-            foodData[key] = s and v or nil
-        end
-        safeFoodGet("hungerChange", function() return item:getHungChange() end)
-        safeFoodGet("thirst", function() return item:getThirstChange() end)
-        safeFoodGet("boredom", function() return item:getBoredomChange() end)
-        safeFoodGet("unhappy", function() return item:getUnhappyChange() end)
-        safeFoodGet("carbs", function() return item:getCarbohydrates() end)
-        safeFoodGet("lipids", function() return item:getLipids() end)
-        safeFoodGet("proteins", function() return item:getProteins() end)
-        safeFoodGet("calories", function() return item:getCalories() end)
-        safeFoodGet("tained", function() return item:isTaintedWater() end)
-        safeFoodGet("cooked", function() return item:isCooked() end)
-        safeFoodGet("burn", function() return item:isBurnt() end)
-        safeFoodGet("freshness", function() return item:getAge() end)
-        safeFoodGet("rotten", function() return item:isRotten() end)
-        customData.food = foodData
+    if instanceof(item, "Food") then
+        customData.food = {
+            hungerChange = item:getHungChange(),
+            thirst = item:getThirstChange(),
+            boredom = item:getBoredomChange(),
+            unhappy = item:getUnhappyChange(),
+            carbs = item:getCarbohydrates(),
+            lipids = item:getLipids(),
+            proteins = item:getProteins(),
+            calories = item:getCalories(),
+            tained = item:isTaintedWater(),
+            cooked = item:isCooked(),
+            burn = item:isBurnt(),
+            freshness = item:getAge(),
+            rotten = item:isRotten(),
+        }
     end
 
     return customData
@@ -265,19 +256,21 @@ end
 
 function restoreItemsToContainer(container, items)
     for _, itemData in ipairs(items) do
-        local item = InventoryItemFactory.CreateItem(itemData.type)
+        local item = instanceItem(itemData.type)
         if item then
             setItemCustomData(item, itemData.customData)
             item:setCondition(itemData.condition)
             container:AddItem(item)
 
-            if #itemData.inventario > 0 then
+            if itemData.inventario and #itemData.inventario > 0 then
                 local itemContainer = item:getInventory()
-                print("Restaurando contenedor: " .. itemData.type)
-                restoreItemsToContainer(itemContainer, itemData.inventario)
+                if itemContainer then
+                    print("Restaurando contenedor: " .. itemData.type)
+                    restoreItemsToContainer(itemContainer, itemData.inventario)
+                end
             end
         else
-            print("No se pudo crear el item: " .. itemData.type)
+            print("No se pudo crear el item: " .. tostring(itemData.type))
         end
     end
 end
@@ -285,31 +278,27 @@ end
 function setItemCustomData(item, customData)
     if not customData then return end
 
-    if customData.uses then
-        pcall(function() item:setUsedDelta(customData.uses) end)
+    if customData.uses and instanceof(item, "DrainableComboItem") then
+        item:setUsedDelta(customData.uses)
     end
-    if customData.ammo then
-        pcall(function() item:setCurrentAmmoCount(customData.ammo) end)
+    if customData.ammo and instanceof(item, "HandWeapon") then
+        item:setCurrentAmmoCount(customData.ammo)
     end
 
-    local ok, isFood = pcall(function() return item:IsFood() end)
-    if ok and isFood and customData.food then
-        local function safeSet(func)
-            pcall(func)
-        end
-        if customData.food.hungerChange then safeSet(function() item:setHungChange(customData.food.hungerChange) end) end
-        if customData.food.thirst then safeSet(function() item:setThirstChange(customData.food.thirst) end) end
-        if customData.food.boredom then safeSet(function() item:setBoredomChange(customData.food.boredom) end) end
-        if customData.food.unhappy then safeSet(function() item:setUnhappyChange(customData.food.unhappy) end) end
-        if customData.food.carbs then safeSet(function() item:setCarbohydrates(customData.food.carbs) end) end
-        if customData.food.lipids then safeSet(function() item:setLipids(customData.food.lipids) end) end
-        if customData.food.proteins then safeSet(function() item:setProteins(customData.food.proteins) end) end
-        if customData.food.calories then safeSet(function() item:setCalories(customData.food.calories) end) end
-        if customData.food.tained ~= nil then safeSet(function() item:setTaintedWater(customData.food.tained) end) end
-        if customData.food.cooked ~= nil then safeSet(function() item:setCooked(customData.food.cooked) end) end
-        if customData.food.burn ~= nil then safeSet(function() item:setBurnt(customData.food.burn) end) end
-        if customData.food.freshness then safeSet(function() item:setAge(customData.food.freshness) end) end
-        if customData.food.rotten ~= nil then safeSet(function() item:setRotten(customData.food.rotten) end) end
+    if customData.food and instanceof(item, "Food") then
+        if customData.food.hungerChange then item:setHungChange(customData.food.hungerChange) end
+        if customData.food.thirst then item:setThirstChange(customData.food.thirst) end
+        if customData.food.boredom then item:setBoredomChange(customData.food.boredom) end
+        if customData.food.unhappy then item:setUnhappyChange(customData.food.unhappy) end
+        if customData.food.carbs then item:setCarbohydrates(customData.food.carbs) end
+        if customData.food.lipids then item:setLipids(customData.food.lipids) end
+        if customData.food.proteins then item:setProteins(customData.food.proteins) end
+        if customData.food.calories then item:setCalories(customData.food.calories) end
+        if customData.food.tained ~= nil then item:setTaintedWater(customData.food.tained) end
+        if customData.food.cooked ~= nil then item:setCooked(customData.food.cooked) end
+        if customData.food.burn ~= nil then item:setBurnt(customData.food.burn) end
+        if customData.food.freshness then item:setAge(customData.food.freshness) end
+        if customData.food.rotten ~= nil then item:setRotten(customData.food.rotten) end
     end
 end
 

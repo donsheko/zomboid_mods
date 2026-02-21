@@ -15,6 +15,7 @@ module SKOCapsule
         MetalValue = 0,
     }
 
+    /* TODO: Restaurar receta cuando SKO Crafteos este migrado a B42
     craftRecipe CraftearContenedorVehiculo
     {
         timedAction = Making,
@@ -33,4 +34,5 @@ module SKOCapsule
             item 1 SKOCapsule.ContenedorVehiculos,
         }
     }
+    */
 }
