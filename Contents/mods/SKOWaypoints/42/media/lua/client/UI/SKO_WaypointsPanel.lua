@@ -178,12 +178,12 @@ function teleportPlayerTo(x, y, z)
     local modData = player:getModData()
     modData.lastPosition = {x = player:getX(), y = player:getY(), z = player:getZ()}
     print("SKOWaypoints: Teletransportando a " .. x .. ", " .. y .. ", " .. z)
-    player:setX(x)
-    player:setY(y)
-    player:setZ(z)
-    player:setLx(x)
-    player:setLy(y)
-    player:setLz(z)
+    
+    if isClient() then
+        SendCommandToServer("/teleportto " .. tostring(x) .. "," .. tostring(y) .. "," .. tostring(z))
+    else
+        player:teleportTo(tonumber(x), tonumber(y), tonumber(z))
+    end
 end
 
 function agregarOpcionMenuWaypoints(player, context, worldObjects)
