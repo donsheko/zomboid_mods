@@ -67,6 +67,8 @@ function SKOWaypointStoragePanel:createChildren()
     -- Combobox para filtrar categorias de la Nube
     local comboWidth = 140
     self.comboCategory = ISComboBox:new(self.width - 10 - comboWidth, listY - 25, comboWidth, 20, self, self.onCategoryChange)
+    self.comboCategory.onChange = self.onCategoryChange
+    self.comboCategory.target = self
     self.comboCategory:initialise()
     self.comboCategory:addOption("Todos")
     self:addChild(self.comboCategory)
@@ -150,16 +152,24 @@ function SKOWaypointStoragePanel:refreshLists()
     -- Reconstruir combobox manteniendo la seleccion
     local currentSelection = "Todos"
     if self.comboCategory then
-        currentSelection = self.comboCategory:getSelectedText() or "Todos"
+        local st = self.comboCategory:getSelectedText()
+        if st then currentSelection = st end
+        
         self.comboCategory:clear()
         self.comboCategory:addOption("Todos")
+        
+        local sortedCategories = {}
         for cat, _ in pairs(uniqueCategories) do
+            table.insert(sortedCategories, cat)
+        end
+        table.sort(sortedCategories)
+
+        for _, cat in ipairs(sortedCategories) do
             self.comboCategory:addOption(cat)
         end
+        
+        self.comboCategory.selected = 1
         self.comboCategory:select(currentSelection)
-        if self.comboCategory.selected <= 0 then
-            self.comboCategory:select("Todos")
-        end
     end
 
     local selectedCategory = nil
@@ -208,6 +218,11 @@ function SKOWaypointStoragePanel:refreshLists()
     self.listNetwork:setYScroll(netScroll)
 end
 
+function SKOWaypointStoragePanel:onCategoryChange(combo, arg1, arg2)
+    -- Disparar refresco manualmente
+    self:refreshLists()
+end
+
 -- ==========================================
 -- Funciones robustas de serializacion de Items 
 -- (Compatibilidad con SKO Capsule)
@@ -250,7 +265,6 @@ local function serializeItemData(item)
             lipids = item:getLipids(),
             proteins = item:getProteins(),
             calories = item:getCalories(),
-            tained = item:isTaintedWater(), 
             cooked = item:isCooked(),
             burn = item:isBurnt(),
             freshness = item:getAge(),
@@ -328,7 +342,6 @@ local function deserializeItemData(itemData)
             if f.lipids then newItem:setLipids(f.lipids) end
             if f.proteins then newItem:setProteins(f.proteins) end
             if f.calories then newItem:setCalories(f.calories) end
-            if f.tained ~= nil then newItem:setTaintedWater(f.tained) end
             if f.cooked ~= nil then newItem:setCooked(f.cooked) end
             if f.burn ~= nil then newItem:setBurnt(f.burn) end
             if f.freshness then newItem:setAge(f.freshness) end

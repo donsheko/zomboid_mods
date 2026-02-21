@@ -204,7 +204,6 @@ function getItemCustomData(item)
             lipids = item:getLipids(),
             proteins = item:getProteins(),
             calories = item:getCalories(),
-            tained = item:isTaintedWater(),
             cooked = item:isCooked(),
             burn = item:isBurnt(),
             freshness = item:getAge(),
@@ -404,7 +403,6 @@ function setItemCustomData(item, customData)
         if customData.food.lipids then item:setLipids(customData.food.lipids) end
         if customData.food.proteins then item:setProteins(customData.food.proteins) end
         if customData.food.calories then item:setCalories(customData.food.calories) end
-        if customData.food.tained ~= nil then item:setTaintedWater(customData.food.tained) end
         if customData.food.cooked ~= nil then item:setCooked(customData.food.cooked) end
         if customData.food.burn ~= nil then item:setBurnt(customData.food.burn) end
         if customData.food.freshness then item:setAge(customData.food.freshness) end
