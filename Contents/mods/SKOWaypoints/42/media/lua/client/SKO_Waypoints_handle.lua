@@ -125,10 +125,8 @@ function OnFillWorldObjectContextMenu_Waypoints(playerIndex, context, worldobjec
     for i, worldobject in ipairs(wObjects) do
         if checkObjectisWaypoint(worldobject) then           
             local waypointIndex = checkWaypointExist(worldobject)
-            if not waypointIndex or waypointIndex < 0 then
-                context:addOption("Agregar Waypoint", worldobject, addWaypoint, worldobject)
-            else
-                context:addOption("Eliminar Waypoint", worldobject, eliminarWaypoint, waypointIndex)
+            -- Solo mostrar opciones si el waypoint esta registrado
+            if waypointIndex and waypointIndex > 0 then
                 context:addOption("Renombrar Waypoint", worldobject, renombrarWaypoint, waypointIndex)
                 context:addOption("Nube Waypoint (Transmisor)", worldobject, openSKOWaypointStorage)
             end
