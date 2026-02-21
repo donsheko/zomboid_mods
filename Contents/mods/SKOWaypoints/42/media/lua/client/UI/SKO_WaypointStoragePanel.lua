@@ -230,6 +230,7 @@ end
 local function serializeItemData(item)
     if not item then return nil end
     local customData = {}
+    customData.customName = item:getName()
 
     if instanceof(item, "DrainableComboItem") then
         customData.uses = item:getUsedDelta()
@@ -318,6 +319,9 @@ local function deserializeItemData(itemData)
 
     local cData = itemData.customData
     if cData then
+        if cData.customName then
+            newItem:setName(cData.customName)
+        end
         if cData.uses and instanceof(newItem, "DrainableComboItem") then
             newItem:setUsedDelta(cData.uses)
         end
