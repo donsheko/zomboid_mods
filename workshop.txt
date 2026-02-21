@@ -1,0 +1,4 @@
+title=SKO_Collection_B42
+description=SKO Modpack for Build 42
+tags=
+visibility=public

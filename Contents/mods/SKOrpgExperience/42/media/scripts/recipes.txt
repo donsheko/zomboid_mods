@@ -1,0 +1,75 @@
+module base
+{
+    craftRecipe Forge_Calipers
+    {
+        time        = 500,
+        SkillRequired = Blacksmith:5,
+        needTobeLearn = true,
+        timedAction = MakingHammer_Surface,
+        xpAward = Blacksmith:30,
+        AutoLearnAll = Blacksmith:6,
+        tags = AdvancedForge,
+        category = Tools,
+        inputs
+        {
+            item 2 tags[Charcoal],
+            item 1 tags[BarStockQuarter],
+            item 1 tags[BallPeenHammer] mode:keep flags[MayDegradeLight],
+            item 1 tags[Tongs] mode:keep flags[MayDegradeLight],
+            item 1 tags[MetalworkingChisel] mode:keep flags[MayDegradeLight],
+        }
+        outputs
+        {
+            item 1 Base.Calipers,
+        }
+    }
+
+    craftRecipe Forge_PipeWrench
+    {
+        time        = 500,
+        SkillRequired = Blacksmith:5,
+        needTobeLearn = true,
+        timedAction = MakingHammer_Surface,
+        xpAward = Blacksmith:50,
+        AutoLearnAll = Blacksmith:7,
+        tags = AdvancedForge,
+        category = Tools,
+        inputs
+        {
+            item 3 tags[Charcoal],
+            item 1 tags[BarStockHalf],
+            item 1 tags[BallPeenHammer] mode:keep flags[MayDegradeLight],
+            item 1 tags[Tongs] mode:keep flags[MayDegradeLight],
+            item 1 tags[MetalworkingChisel] mode:keep flags[MayDegradeLight],
+            item 1 [Base.Calipers] mode:keep,
+        }
+        outputs
+        {
+            item 1 Base.PipeWrench,
+        }
+    }
+
+    craftRecipe Forge_Wire
+    {
+        time        = 200,
+        SkillRequired = Blacksmith:1,
+        needTobeLearn = true,
+        timedAction = MakingHammer_Surface,
+        xpAward = Blacksmith:25,
+        AutoLearnAll = Blacksmith:2,
+        tags = PrimitiveForge,
+        category = Tools,
+        inputs
+        {
+            item 1 tags[Charcoal],
+            item 1 tags[BarStockQuarter],
+            item 1 tags[Hammer] mode:keep flags[MayDegradeLight],
+            item 1 tags[CrudeTongs;MetalworkingPliers;Tongs] mode:keep flags[MayDegradeLight],
+            item 1 tags[MetalworkingPunch;SmallPunch] mode:keep flags[MayDegradeLight],
+        }
+        outputs
+        {
+            item 1 Base.Wire,
+        }
+    }
+}
