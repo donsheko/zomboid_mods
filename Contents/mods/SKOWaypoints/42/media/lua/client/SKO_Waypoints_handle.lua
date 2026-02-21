@@ -130,6 +130,7 @@ function OnFillWorldObjectContextMenu_Waypoints(playerIndex, context, worldobjec
                 context:addOption("Agregar Waypoint", worldobject, addWaypoint, worldobject)
             else
                 context:addOption("Eliminar Waypoint", worldobject, eliminarWaypoint, waypointIndex)
+                context:addOption("Nube Waypoint (Transmisor)", worldobject, openSKOWaypointStorage)
             end
         end
     end
