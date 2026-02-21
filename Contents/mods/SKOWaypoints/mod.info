@@ -4,4 +4,4 @@ description=Inserta Waypoints a los cuales podras teletransportarte luego de hab
 authors=ShekoGaming
 modversion=1.0
 versionMin=42.0
-require=SKOLib
+require=\SKOLib

@@ -4,4 +4,4 @@ description=Permite almacenar vehiculos al mismo estilo que lo hacia la corporac
 authors=ShekoGaming
 modversion=1.0
 versionMin=42.0
-require=SKOLib
+require=\SKOLib
