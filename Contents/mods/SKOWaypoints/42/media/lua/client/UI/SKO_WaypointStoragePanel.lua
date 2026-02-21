@@ -224,12 +224,20 @@ local function serializeItemData(item)
         customData.ammo = item:getCurrentAmmoCount()
         -- Guardar posibles aditamentos del arma
         customData.parts = {}
-        if item:getScope() then customData.parts.Scope = serializeItemData(item:getScope()) end
-        if item:getClip() then customData.parts.Clip = serializeItemData(item:getClip()) end
-        if item:getSling() then customData.parts.Sling = serializeItemData(item:getSling()) end
-        if item:getStock() then customData.parts.Stock = serializeItemData(item:getStock()) end
-        if item:getCanon() then customData.parts.Canon = serializeItemData(item:getCanon()) end
-        if item:getRecoilpad() then customData.parts.Recoilpad = serializeItemData(item:getRecoilpad()) end
+        if type(item.getWeaponPart) == "function" then
+            local pScope = item:getWeaponPart("Scope")
+            if pScope then customData.parts.Scope = serializeItemData(pScope) end
+            local pClip = item:getWeaponPart("Clip")
+            if pClip then customData.parts.Clip = serializeItemData(pClip) end
+            local pSling = item:getWeaponPart("Sling")
+            if pSling then customData.parts.Sling = serializeItemData(pSling) end
+            local pStock = item:getWeaponPart("Stock")
+            if pStock then customData.parts.Stock = serializeItemData(pStock) end
+            local pCanon = item:getWeaponPart("Canon")
+            if pCanon then customData.parts.Canon = serializeItemData(pCanon) end
+            local pRecoilpad = item:getWeaponPart("RecoilPad")
+            if pRecoilpad then customData.parts.Recoilpad = serializeItemData(pRecoilpad) end
+        end
     end
 
     if instanceof(item, "Food") then
@@ -301,7 +309,7 @@ local function deserializeItemData(itemData)
         end
         if cData.ammo and instanceof(newItem, "HandWeapon") then
             newItem:setCurrentAmmoCount(cData.ammo)
-            if cData.parts then
+            if cData.parts and type(newItem.attachWeaponPart) == "function" then
                 if cData.parts.Scope then newItem:attachWeaponPart(deserializeItemData(cData.parts.Scope)) end
                 if cData.parts.Clip then newItem:attachWeaponPart(deserializeItemData(cData.parts.Clip)) end
                 if cData.parts.Sling then newItem:attachWeaponPart(deserializeItemData(cData.parts.Sling)) end

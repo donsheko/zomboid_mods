@@ -153,19 +153,45 @@ function processInventoryContainer(item)
     return itemsInContainer
 end
 
+local function getItemDataForPart(partItem)
+    if not partItem then return nil end
+    return {
+        type = partItem:getFullType(),
+        condition = partItem:getCondition(),
+        customData = getItemCustomData(partItem)
+    }
+end
+
 function getItemCustomData(item)
     local customData = {
         uses = nil,
         ammo = nil,
         food = nil,
+        parts = nil,
+        modData = nil
     }
 
     if instanceof(item, "DrainableComboItem") then
-        customData.uses = item:getCurrentUsesFloat()
+        customData.uses = item:getUsedDelta()
     end
 
     if instanceof(item, "HandWeapon") then
         customData.ammo = item:getCurrentAmmoCount()
+        customData.parts = {}
+        if type(item.getWeaponPart) == "function" then
+            local pScope = item:getWeaponPart("Scope")
+            if pScope then customData.parts.Scope = getItemDataForPart(pScope) end
+            local pClip = item:getWeaponPart("Clip")
+            if pClip then customData.parts.Clip = getItemDataForPart(pClip) end
+            local pSling = item:getWeaponPart("Sling")
+            if pSling then customData.parts.Sling = getItemDataForPart(pSling) end
+            local pStock = item:getWeaponPart("Stock")
+            if pStock then customData.parts.Stock = getItemDataForPart(pStock) end
+            local pCanon = item:getWeaponPart("Canon")
+            if pCanon then customData.parts.Canon = getItemDataForPart(pCanon) end
+            local pRecoilpad = item:getWeaponPart("RecoilPad")
+            if pRecoilpad then customData.parts.Recoilpad = getItemDataForPart(pRecoilpad) end
+        end
     end
 
     if instanceof(item, "Food") then
@@ -184,6 +210,16 @@ function getItemCustomData(item)
             freshness = item:getAge(),
             rotten = item:isRotten(),
         }
+    end
+
+    local itemModData = item:getModData()
+    if itemModData then
+        customData.modData = {}
+        for k,v in pairs(itemModData) do
+            if type(v) ~= "userdata" and type(v) ~= "function" then
+                customData.modData[k] = v
+            end
+        end
     end
 
     return customData
@@ -332,6 +368,15 @@ function restoreItemsToContainer(container, items)
     end
 end
 
+local function restoreItemForPart(partData)
+    if not partData then return nil end
+    local newItem = instanceItem(partData.type)
+    if not newItem then return nil end
+    if partData.condition then newItem:setCondition(partData.condition) end
+    setItemCustomData(newItem, partData.customData)
+    return newItem
+end
+
 function setItemCustomData(item, customData)
     if not customData then return end
 
@@ -340,6 +385,14 @@ function setItemCustomData(item, customData)
     end
     if customData.ammo and instanceof(item, "HandWeapon") then
         item:setCurrentAmmoCount(customData.ammo)
+        if customData.parts and type(item.attachWeaponPart) == "function" then
+            if customData.parts.Scope then item:attachWeaponPart(restoreItemForPart(customData.parts.Scope)) end
+            if customData.parts.Clip then item:attachWeaponPart(restoreItemForPart(customData.parts.Clip)) end
+            if customData.parts.Sling then item:attachWeaponPart(restoreItemForPart(customData.parts.Sling)) end
+            if customData.parts.Stock then item:attachWeaponPart(restoreItemForPart(customData.parts.Stock)) end
+            if customData.parts.Canon then item:attachWeaponPart(restoreItemForPart(customData.parts.Canon)) end
+            if customData.parts.Recoilpad then item:attachWeaponPart(restoreItemForPart(customData.parts.Recoilpad)) end
+        end
     end
 
     if customData.food and instanceof(item, "Food") then
@@ -356,6 +409,13 @@ function setItemCustomData(item, customData)
         if customData.food.burn ~= nil then item:setBurnt(customData.food.burn) end
         if customData.food.freshness then item:setAge(customData.food.freshness) end
         if customData.food.rotten ~= nil then item:setRotten(customData.food.rotten) end
+    end
+
+    if customData.modData then
+        local mData = item:getModData()
+        for k,v in pairs(customData.modData) do
+            mData[k] = v
+        end
     end
 end
 
