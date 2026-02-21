@@ -31,3 +31,9 @@ A continuación, una lista de los errores crudos en Zomboid Build 42 encontrados
 - **Problema:** Al descargar un vehículo del panel de la Nube se recibía de vuelta el contenedor original pero sin sus propiedades mágicas (decía el nombre base y no tenía la camioneta adentro). El maletero guardado seguía en la Base de Datos fantasma.
 - **Causa:** La variable serializadora `itemData` no transmitía metadatos de "Nombres visuales del string del texto renderizado del jugador o el mod". Un Base.GranolaBar genérico reconstruido al bajar del Transmisor carecía de la etiqueta `Contenedor Vehiculo:StepVan2531` arrojando un objeto desnudo desconectado de la memoria RAM global modData.
 - **Solución:** Modificación dual. En Upload se transcribió un inyector adicional: `customData.customName = item:getName()`. En Download interceptamos el constructor puro forzando a re-bautizar las cosas que tuvieran esta variable viva `if cData.customName then newItem:setName(cData.customName) end`.
+
+## 6. Excepciones `getUsedDelta()` en Objetos Tipo 'DrainableComboItem'
+
+- **Problema:** Un error nativo Java salta de `getItemCustomData()` al intentar guardar en la Cápsula ciertos objetos gastables (ej: Pañuelos o Papel Higiénico / `Base.Tissue`), deteniendo por completo al juego.
+- **Causa:** En versiones previas como B41, todos los ítems consumibles manejaban su remanente a través de la función genérica `getUsedDelta()`. En B42 esto cambió fundamentalmente: algunos de estos objetos suprimieron de raíz el método ocasionando colapsos de llamada ("attempt to call a nil value").
+- **Solución:** Se implementó como método predilecto B42 `getCurrentUsesFloat()`. Si falla, cae al antiguo `getUsedDelta()`, y siempre están resguardados por verificación del tipo de método `type() == "function"`.

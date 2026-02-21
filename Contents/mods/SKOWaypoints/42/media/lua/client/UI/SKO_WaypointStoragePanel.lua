@@ -119,7 +119,11 @@ function SKOWaypointStoragePanel:refreshLists()
                 text = text .. " (Cond: " .. item:getCondition() .. "/" .. item:getConditionMax() .. ")"
             end
             if item:IsDrainable() then
-                text = text .. " (Restante: " .. math.floor(item:getUsedDelta() * 100) .. "%)"
+                if type(item.getCurrentUsesFloat) == "function" then
+                    text = text .. " (Restante: " .. math.floor(item:getCurrentUsesFloat() * 100) .. "%)"
+                elseif type(item.getUsedDelta) == "function" then
+                    text = text .. " (Restante: " .. math.floor(item:getUsedDelta() * 100) .. "%)"
+                end
             end
             if item:IsFood() then
                 text = text .. " (Hambre: " .. math.floor(item:getHungChange() * 100) .. ")"
@@ -233,7 +237,11 @@ local function serializeItemData(item)
     customData.customName = item:getName()
 
     if instanceof(item, "DrainableComboItem") then
-        customData.uses = item:getUsedDelta()
+        if type(item.getCurrentUsesFloat) == "function" then
+            customData.uses = item:getCurrentUsesFloat()
+        elseif type(item.getUsedDelta) == "function" then
+            customData.uses = item:getUsedDelta()
+        end
     end
 
     if instanceof(item, "HandWeapon") then
@@ -323,7 +331,9 @@ local function deserializeItemData(itemData)
             newItem:setName(cData.customName)
         end
         if cData.uses and instanceof(newItem, "DrainableComboItem") then
-            newItem:setUsedDelta(cData.uses)
+            if type(newItem.setUsedDelta) == "function" then
+                newItem:setUsedDelta(cData.uses)
+            end
         end
         if cData.ammo and instanceof(newItem, "HandWeapon") then
             newItem:setCurrentAmmoCount(cData.ammo)
@@ -399,7 +409,11 @@ function SKOWaypointStoragePanel:onUploadItem(itemData)
     serialized.isDrainable = realItem:IsDrainable()
 
     if serialized.isDrainable then
-        serialized.usedDelta = realItem:getUsedDelta()
+        if type(realItem.getCurrentUsesFloat) == "function" then
+            serialized.usedDelta = realItem:getCurrentUsesFloat()
+        elseif type(realItem.getUsedDelta) == "function" then
+            serialized.usedDelta = realItem:getUsedDelta()
+        end
     end
     if serialized.isFood then
         serialized.hungChange = realItem:getHungChange()

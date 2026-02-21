@@ -172,7 +172,11 @@ function getItemCustomData(item)
     }
 
     if instanceof(item, "DrainableComboItem") then
-        customData.uses = item:getUsedDelta()
+        if type(item.getCurrentUsesFloat) == "function" then
+            customData.uses = item:getCurrentUsesFloat()
+        elseif type(item.getUsedDelta) == "function" then
+            customData.uses = item:getUsedDelta()
+        end
     end
 
     if instanceof(item, "HandWeapon") then
@@ -380,7 +384,9 @@ function setItemCustomData(item, customData)
     if not customData then return end
 
     if customData.uses and instanceof(item, "DrainableComboItem") then
-        item:setUsedDelta(customData.uses)
+        if type(item.setUsedDelta) == "function" then
+            item:setUsedDelta(customData.uses)
+        end
     end
     if customData.ammo and instanceof(item, "HandWeapon") then
         item:setCurrentAmmoCount(customData.ammo)
