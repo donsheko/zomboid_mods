@@ -1,0 +1,46 @@
+module Base
+{
+    model Waypoint
+    {
+        mesh = Waypoint,
+        texture = Models/WaypointTexture,
+    }
+}
+
+module SKO_Waypoint
+{
+    imports
+    {
+        Base
+    }
+
+    item Waypoint
+    {
+        DisplayCategory = Material,
+        ItemType = base:normal,
+        Weight = 0.5,
+        WorldStaticModel = Waypoint,
+        DisplayName = Waypoint,
+        Icon = Waypoint,
+    }
+
+    craftRecipe CrearWaypoint
+    {
+        timedAction = Making,
+        time = 300,
+        Tags = AnySurfaceCraft,
+        category = Metalworking,
+        inputs
+        {
+            item 1 tags[base:hammer] mode:keep flags[MayDegradeLight;Prop1],
+            item 1 [Base.Screwdriver] mode:keep flags[MayDegradeLight;Prop2],
+            item 2 [Base.MetalBar],
+            item 2 [Base.ElectronicsScrap],
+            item 1 [Base.ElectricWire],
+        }
+        outputs
+        {
+            item 1 SKO_Waypoint.Waypoint,
+        }
+    }
+}
