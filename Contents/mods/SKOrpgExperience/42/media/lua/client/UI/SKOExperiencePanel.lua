@@ -19,6 +19,8 @@ function SKOExperiencePanel:new(x, y, width, height)
     o.borderColor = {r=1, g=1, b=1, a=0.2}
     o.title = "Experience RPG Panel"
     o.moveWithMouse = true
+    -- Guardar labels de datos para actualización en vivo
+    o.dataLabels = {}
     SKOExperiencePanel.instance = o
     return o
 end
@@ -28,15 +30,15 @@ function SKOExperiencePanel:createChildren()
     local titleHgt = getTextManager():getFontFromEnum(UIFont.Medium):getLineHeight()
     local titleY = 10
     local titleX = self.width / 2
-    self.title = ISLabel:new(titleX, titleY, titleHgt, "Experience RPG Panel", 1, 1, 1, 1, UIFont.Medium, true)
-    self.title:initialise()
-    self.title:instantiate()
-    self.title:setAnchorLeft(true)
-    self.title:setAnchorRight(false)
-    self.title:setAnchorTop(true)
-    self.title:setAnchorBottom(false)
-    self.title.center = true
-    self:addChild(self.title)
+    self.titleLabel = ISLabel:new(titleX, titleY, titleHgt, "Experience RPG Panel", 1, 1, 1, 1, UIFont.Medium, true)
+    self.titleLabel:initialise()
+    self.titleLabel:instantiate()
+    self.titleLabel:setAnchorLeft(true)
+    self.titleLabel:setAnchorRight(false)
+    self.titleLabel:setAnchorTop(true)
+    self.titleLabel:setAnchorBottom(false)
+    self.titleLabel.center = true
+    self:addChild(self.titleLabel)
     
 
     --agregamos el boton de Cerrar en la parte inferior derecha
@@ -51,57 +53,102 @@ function SKOExperiencePanel:createChildren()
     self.closeButton.borderColor = {r=1, g=1, b=1, a=0.1}
     self:addChild(self.closeButton)
 
-    self:displayData()
+    self:createDataLabels()
+    self:refreshData()
     self:menuHabilidades()
 end
 
-function SKOExperiencePanel:displayData()
+-- Crear las labels una sola vez (sin llenar datos)
+function SKOExperiencePanel:createDataLabels()
     local titleHgt = getTextManager():getFontFromEnum(UIFont.Medium):getLineHeight()
+    local infoStartY = titleHgt + 20
+    local labelX = 15
+    local valueRightX = self.width - 15
+    local valueWidth = self.width / 2 - 20
+    local currentY = infoStartY
+    local rowHeight = getTextManager():getFontFromEnum(UIFont.Medium):getLineHeight()
+    local font = UIFont.Medium
+
+    local function addLabelPair(key)
+        local label = ISLabel:new(labelX, currentY, rowHeight, "", 1, 1, 1, 1, font, true)
+        label:initialise()
+        label:instantiate()
+        self:addChild(label)
+
+        local value = ISLabel:new(valueRightX - valueWidth, currentY, rowHeight, "", 1, 1, 1, 1, font, true)
+        value:initialise()
+        value:instantiate()
+        value.rightAlign = true
+        self:addChild(value)
+
+        self.dataLabels[key] = { label = label, value = value }
+        currentY = currentY + rowHeight
+    end
+
+    addLabelPair("row1")
+    addLabelPair("row2")
+    addLabelPair("row3")
+    addLabelPair("row4")
+end
+
+-- Actualizar los textos de las labels sin recrearlas
+function SKOExperiencePanel:refreshData()
     local personaje = getPlayer()
     local playerData = SKO_PlayerObject:getPlayerData(personaje)
-    if playerData then 
-        local playerText = (personaje:getUsername() or "N/A")
-        local prestigeText = "Prestigio: " .. (playerData.prestige or 0)
-        local totalXpText = "XP Total: " .. (playerData.totalXp or 0)
-        local levelText = "Nivel Actual: " .. (playerData.currentLevel or 1)
-        local xpText = "Experiencia Actual: " .. (playerData.currentXP or 0)
-        local xpGap = (playerData.xpToNextLevel or 100) - (playerData.currentXP or 0)
-        local availablePointsText = "Puntos Disponibles: " .. (playerData.availablePoints or 0)
-        local xpToNextLevelText = "XP Siguiente Nivel: " .. xpGap
+    if not playerData then return end
 
-        -- *** Información del Jugador (Formato de "Tabla" mejorado) ***
-        local infoStartY = titleHgt + 20 -- Posición Y inicial para la información del jugador
-        local labelX = 15 -- Posición X para las etiquetas (izquierda)
-        local valueRightX = self.width - 15 -- Extremo derecho donde queremos que termine el valor (15px de margen derecho)
-        local valueWidth = self.width / 2 - 20 -- Ancho para las etiquetas de valor
-        local currentY = infoStartY
-        local rowHeight = getTextManager():getFontFromEnum(UIFont.Medium):getLineHeight() -- Altura de cada fila basada en la fuente
-        local font = UIFont.Medium -- Fuente para las etiquetas de información
+    local playerText = (personaje:getUsername() or "N/A")
+    local prestigeText = "Prestigio: " .. (playerData.prestige or 0)
+    local totalXpText = "XP Total: " .. (playerData.totalXp or 0)
+    local levelText = "Nivel Actual: " .. (playerData.currentLevel or 1)
+    local xpText = "Experiencia Actual: " .. (playerData.currentXP or 0)
+    local xpGap = (playerData.xpToNextLevel or 100) - (playerData.currentXP or 0)
+    local availablePointsText = "Puntos Disponibles: " .. (playerData.availablePoints or 0)
+    local xpToNextLevelText = "XP Siguiente Nivel: " .. xpGap
 
-        -- Función auxiliar para crear y añadir una fila de etiqueta-valor
-        local function addInfoRow(labelText, valueRef)
-            -- Etiqueta de la izquierda (el "nombre" del campo)
-            local label = ISLabel:new(labelX, currentY, rowHeight, labelText, 1, 1, 1, 1, font, true)
-            label:initialise()
-            label:instantiate()
-            self:addChild(label)
-
-            -- Etiqueta de la derecha (el "valor" del campo)
-            -- La posición X se calcula para que su borde derecho esté en valueRightX
-            -- y su ancho es valueWidth
-            local value = ISLabel:new(valueRightX - valueWidth, currentY, rowHeight, valueRef, 1, 1, 1, 1, font, true)
-            value:initialise()
-            value:instantiate()
-            value.rightAlign = true -- Esto sí funciona: alinea el texto *dentro de la caja de la etiqueta* a la derecha
-            self:addChild(value)
-            currentY = currentY + rowHeight
+    local function setRow(key, leftText, rightText)
+        if self.dataLabels[key] then
+            self.dataLabels[key].label:setName(leftText)
+            self.dataLabels[key].value:setName(rightText)
         end
-        
-        addInfoRow("Personaje:", playerText)
-        addInfoRow(prestigeText, totalXpText)
-        addInfoRow(levelText, xpText)
-        addInfoRow(availablePointsText, xpToNextLevelText)
     end
+
+    setRow("row1", "Personaje:", playerText)
+    setRow("row2", prestigeText, totalXpText)
+    setRow("row3", levelText, xpText)
+    setRow("row4", availablePointsText, xpToNextLevelText)
+end
+
+-- Actualizar solo la lista de habilidades, conservando la selección y el scroll
+function SKOExperiencePanel:refreshHabilidades()
+    if not self.PanelHabilidades then return end
+
+    -- Guardar posición actual
+    local selectedIndex = self.PanelHabilidades.selected
+    local scrollY = self.PanelHabilidades:getYScroll()
+
+    -- Limpiar y repoblar
+    self.PanelHabilidades:clear()
+
+    local personaje = getPlayer()
+    local habilidades = SKO_PlayerObject:obtenerHabilidades(personaje)
+    if habilidades then
+        for _, habilidad in ipairs(habilidades) do
+            local habilidadText = habilidad.name .. " (Nivel: " .. habilidad.level .. ") - Costo: " .. habilidad.skillPointCost .. " puntos"
+            if habilidad.level < 10 then
+                self.PanelHabilidades:addItem(habilidadText, habilidad)
+            end
+        end
+    end
+
+    -- Restaurar posición
+    local itemCount = #self.PanelHabilidades.items
+    if selectedIndex and selectedIndex > 0 and selectedIndex <= itemCount then
+        self.PanelHabilidades.selected = selectedIndex
+    elseif itemCount > 0 then
+        self.PanelHabilidades.selected = math.min(selectedIndex or 1, itemCount)
+    end
+    self.PanelHabilidades:setYScroll(scrollY)
 end
 
 function SKOExperiencePanel:menuHabilidades()
@@ -136,22 +183,22 @@ function SKOExperiencePanel:onCloseButtonClick()
     SKOExperiencePanel.instance = nil
 end
 
+-- Actualización en vivo: solo refrescar datos, NO destruir/recrear el panel
 function SKOExperiencePanel:onXpUpdate()
-    if SKOExperiencePanel and not SKOExperiencePanel.instance then return end
+    if not SKOExperiencePanel.instance then return end
+    if not SKOExperiencePanel.instance:getIsVisible() then return end
 
-    if SKOExperiencePanel.instance and SKOExperiencePanel.instance:getIsVisible() then
-        SKOExperiencePanel.instance:removeFromUIManager();
-    end
-    
-    openSKOExperiencePanel();
+    SKOExperiencePanel.instance:refreshData()
+    SKOExperiencePanel.instance:refreshHabilidades()
 end
 
+-- Al comprar habilidad: actualizar in-place sin cerrar el panel
 function SKOExperiencePanel:onAbilityDoubleClick(habilidad)
     local personaje = getPlayer()
     SKO_PlayerObject:comprarHabilidad(personaje, habilidad)
-    self:removeFromUIManager()
-    self:close()
-    openSKOExperiencePanel()
+    -- Refrescar in-place en lugar de destruir/recrear
+    self:refreshData()
+    self:refreshHabilidades()
 end
 
 

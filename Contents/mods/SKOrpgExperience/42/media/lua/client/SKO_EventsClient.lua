@@ -1,5 +1,4 @@
 local function onGainXp(character, perk, amount)
-    local commandName = "SKOAddXP";
     local localPlayer = getPlayer();
     
     if not character or not perk or not amount or amount <= 0 then
@@ -7,25 +6,38 @@ local function onGainXp(character, perk, amount)
     end
     
     if character ~= localPlayer then
-        print("SKORPGExperience [CLIENT]: El personaje no es el jugador local, no se enviará el comando.");
         return;
     end
 
-    if amount > 0 then
-        local xpToSend = math.floor(amount);
-        local args = { amount = xpToSend };
-        if xpToSend > 0 then
-            sendClientCommand(localPlayer, "SKO_Events", commandName, args);
+    local xpToSend = math.floor(amount);
+    if xpToSend > 0 then
+        if isClient() then
+            -- Multiplayer: enviar al server para procesar
+            sendClientCommand(localPlayer, "SKO_Events", "SKOAddXP", { amount = xpToSend });
+        else
+            -- Singleplayer: procesar directamente y actualizar UI
+            SKO_PlayerObject:addXP(localPlayer, xpToSend);
+            if SKOExperiencePanel and SKOExperiencePanel.instance then
+                SKOExperiencePanel.instance:onXpUpdate();
+            end
         end
     end
 end
 
 
 local function onZombieDead(zombie)
-    local xpKill = 10; -- Xp por zombie asesinado
+    local xpKill = 10;
     local localPlayer = getPlayer();
-    sendClientCommand(localPlayer, "SKO_Events", "SKOAddXP", { amount = xpKill });
-    print("SKORPGExperience [CLIENT]: Zombie asesinado, se ha añadido " .. xpKill .. " XP al jugador.");
+    if isClient() then
+        -- Multiplayer: enviar al server
+        sendClientCommand(localPlayer, "SKO_Events", "SKOAddXP", { amount = xpKill });
+    else
+        -- Singleplayer: procesar directamente
+        SKO_PlayerObject:addXP(localPlayer, xpKill);
+        if SKOExperiencePanel and SKOExperiencePanel.instance then
+            SKOExperiencePanel.instance:onXpUpdate();
+        end
+    end
 end
 
 local function onServerCommand(module, command, args)
