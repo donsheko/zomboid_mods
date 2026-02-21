@@ -1,0 +1,5 @@
+name=SKO Lib (Core Library)
+id=SKOLib
+description=Librería principal matemática y utilitaría requerida para el funcionamiento de los mods empresariales SKO (Capsule, Waypoints, etc).
+poster=poster.png
+versionMin=41.78

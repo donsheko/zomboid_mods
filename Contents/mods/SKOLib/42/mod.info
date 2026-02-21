@@ -1,0 +1,5 @@
+name=SKO Lib (Core Library B42)
+id=SKOLib
+description=SKO Core functions and Item Serializer required for Capsule, Waypoints and other SKO features over Build 42 Engine.
+poster=poster.png
+versionMin=42.0
