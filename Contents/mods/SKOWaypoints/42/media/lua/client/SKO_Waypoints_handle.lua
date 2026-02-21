@@ -130,9 +130,84 @@ function OnFillWorldObjectContextMenu_Waypoints(playerIndex, context, worldobjec
                 context:addOption("Agregar Waypoint", worldobject, addWaypoint, worldobject)
             else
                 context:addOption("Eliminar Waypoint", worldobject, eliminarWaypoint, waypointIndex)
+                context:addOption("Renombrar Waypoint", worldobject, renombrarWaypoint, waypointIndex)
                 context:addOption("Nube Waypoint (Transmisor)", worldobject, openSKOWaypointStorage)
             end
         end
+    end
+end
+
+function renombrarWaypoint(worldObject, waypointIndex)
+    local waypointsTable = getPlayer():getModData().skoWaypoints
+    if waypointsTable and waypointsTable[waypointIndex] then
+        local currentName = waypointsTable[waypointIndex].name
+        local modal = ISTextBox:new(0, 0, 280, 180, "Nuevo nombre para el Waypoint:", currentName, nil, onRenombrarWaypointPrompt, getPlayer():getPlayerNum(), getPlayer(), waypointIndex)
+        modal:initialise()
+        modal:addToUIManager()
+    end
+end
+
+function onRenombrarWaypointPrompt(target, button, player, waypointIndex)
+    if button.internal == "OK" then
+        local text = button.parent.entry:getText()
+        if text and text ~= "" then
+            local modData = player:getModData()
+            local waypointsTable = modData.skoWaypoints
+            if waypointsTable and waypointsTable[waypointIndex] then
+                waypointsTable[waypointIndex].name = text
+                if SKOWaypointsPanel and SKOWaypointsPanel.instance then
+                    SKOWaypointsPanel.instance:refreshWaypointsList()
+                end
+                print("SKOWaypoints: Waypoint renombrado a " .. text)
+            end
+        end
+    end
+end
+
+-- =====================================
+-- Autoagregar / Autoeliminar Waypoints 
+-- =====================================
+
+require "TimedActions/ISDropWorldItemAction"
+require "TimedActions/ISGrabItemAction"
+
+local original_drop_perform = ISDropWorldItemAction.perform
+function ISDropWorldItemAction:perform(...)
+    local fullType = self.item:getFullType()
+    local sq = self.sq
+    original_drop_perform(self, ...)
+    
+    if fullType == "SKO_Waypoint.Waypoint" and sq then
+        -- Buscar el worldobject recien creado en el suelo
+        local worldObjs = sq:getWorldObjects()
+        for i=0, worldObjs:size()-1 do
+            local wo = worldObjs:get(i)
+            if wo:getItem() and wo:getItem():getFullType() == "SKO_Waypoint.Waypoint" then
+                -- Si no existe ya, lo agregamos en automatico
+                if checkWaypointExist(wo) < 0 then
+                    addWaypoint(wo)
+                end
+            end
+        end
+    end
+end
+
+local original_grab_transferItem = ISGrabItemAction.transferItem
+function ISGrabItemAction:transferItem(item, ...)
+    local isWaypoint = false
+    if item and item:getItem() and item:getItem():getFullType() == "SKO_Waypoint.Waypoint" then
+        isWaypoint = true
+    end
+    
+    local idx = -1
+    if isWaypoint then
+        idx = checkWaypointExist(item)
+    end
+    
+    original_grab_transferItem(self, item, ...)
+    
+    if isWaypoint and idx > 0 then
+        eliminarWaypoint(item, idx)
     end
 end
 
