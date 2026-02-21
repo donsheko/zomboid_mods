@@ -440,26 +440,19 @@ function AgregarOpcionVehiculo(player, context, worldobjects)
         if vehicleData then
             createRestoreButton(context, vehicleData, itemEquiped)
         end
+    elseif itemName == "Contenedor de vehiculos" then
+        -- Buscar vehiculos cerca para poder encapsularlos si clickeamos apuntando cerca de ellos
+        for i,v in ipairs(worldobjects) do
+            if v and v:getSquare() and v:getSquare():getVehicleContainer() then
+                local vehicle = v:getSquare():getVehicleContainer()
+                local optionText = "Encapsular Vehiculo: " .. vehicle:getScript():getName()
+                context:addOption(optionText, player, function()
+                    storeVehicleInContainer(vehicle, itemEquiped)
+                end)
+                break
+            end
+        end
     end
-end
-
--- Función para llenar el menú fuera del vehículo
-local original_FillMenuOutsideVehicle = ISVehicleMenu.FillMenuOutsideVehicle
-function ISVehicleMenu.FillMenuOutsideVehicle(player, context, vehicle, test)
-    if original_FillMenuOutsideVehicle then
-        original_FillMenuOutsideVehicle(player, context, vehicle, test)
-    end
-    
-    local jugador = getSpecificPlayer(player)
-    local itemEquiped = jugador:getSecondaryHandItem()
-    if not itemEquiped then return end
-
-    if itemEquiped:getDisplayName() == "Contenedor de vehiculos" then
-        local optionText = "Encapsular Vehiculo: " .. vehicle:getScript():getName()
-        context:addOption(optionText, player, function()
-            storeVehicleInContainer(vehicle, itemEquiped)
-        end)
-    end  
 end
 
 function OnServerCommand(module, command, args)
