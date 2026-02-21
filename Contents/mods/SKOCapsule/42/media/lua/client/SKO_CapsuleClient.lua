@@ -31,12 +31,16 @@ function storeVehicleInContainer(vehicle, itemEquiped)
         fuelCapacity = 0,
         hasKey = vehicle:isKeysInIgnition(),
         hotwired = vehicle:isHotwired(),
+        keyId = vehicle:getKeyId(),
+        trunkLocked = vehicle:isTrunkLocked(),
         batteryCharge = 0,
         color = {
             h = vehicle:getColorHue(),
             s = vehicle:getColorSaturation(),
             v = vehicle:getColorValue()
-        }
+        },
+        doors = {},
+        windows = {},
     }
 
     print("Guardando vehiculo: " .. vehicle:getScript():getFullName())
@@ -75,6 +79,23 @@ function storeVehicleInContainer(vehicle, itemEquiped)
                 hasItem = part:getInventoryItem() ~= nil,
                 item = part:getInventoryItem()
             }
+
+            -- Almacenar estado de puertas
+            local door = part:getDoor()
+            if door then
+                vehicleData.doors[partId] = {
+                    isOpen = door:isOpen(),
+                    isLocked = door:isLocked(),
+                }
+            end
+
+            -- Almacenar estado de ventanas
+            local window = part:getWindow()
+            if window then
+                vehicleData.windows[partId] = {
+                    isOpen = window:isOpen(),
+                }
+            end
         end
     end
 
@@ -237,12 +258,48 @@ function restoreVehicle(vehicleData, itemEquiped)
         end
     end
 
-    -- Restaurar la llave y el estado de puente
-    if vehicleData.hasKey or vehicleData.hotwired then
-        vehicle:setHotwired(true)
-    else
-        vehicle:setHotwired(false)
-        vehicle:setKeysInIgnition(false)
+    -- Restaurar estado de puertas
+    if vehicle and vehicleData.doors then
+        for partId, doorData in pairs(vehicleData.doors) do
+            local part = vehicle:getPartById(partId)
+            if part then
+                local door = part:getDoor()
+                if door then
+                    door:setOpen(doorData.isOpen or false)
+                    door:setLocked(doorData.isLocked or false)
+                end
+            end
+        end
+    end
+
+    -- Restaurar estado de ventanas
+    if vehicle and vehicleData.windows then
+        for partId, windowData in pairs(vehicleData.windows) do
+            local part = vehicle:getPartById(partId)
+            if part then
+                local window = part:getWindow()
+                if window then
+                    window:setOpen(windowData.isOpen or false)
+                end
+            end
+        end
+    end
+
+    -- Restaurar la llave, puenteo y keyId
+    if vehicle then
+        if vehicleData.hotwired then
+            vehicle:setHotwired(true)
+        end
+        if vehicleData.hasKey then
+            vehicle:setKeysInIgnition(true)
+        end
+        -- Restaurar el keyId original para que las llaves del jugador sigan funcionando
+        if vehicleData.keyId and vehicleData.keyId > 0 then
+            vehicle:setKeyId(vehicleData.keyId)
+        end
+        if vehicleData.trunkLocked then
+            vehicle:setTrunkLocked(true)
+        end
     end
 
     -- Regresar el nombre del itemEquiped a "Contenedor de vehiculos"
@@ -410,12 +467,45 @@ function OnServerCommand(module, command, args)
                     end
                 end
 
-                -- Restaurar la llave y el estado de puente
-                if vehicleData.hasKey or vehicleData.hotwired then
+                -- Restaurar estado de puertas
+                if vehicleData.doors then
+                    for partId, doorData in pairs(vehicleData.doors) do
+                        local part = vehicle:getPartById(partId)
+                        if part then
+                            local door = part:getDoor()
+                            if door then
+                                door:setOpen(doorData.isOpen or false)
+                                door:setLocked(doorData.isLocked or false)
+                            end
+                        end
+                    end
+                end
+
+                -- Restaurar estado de ventanas
+                if vehicleData.windows then
+                    for partId, windowData in pairs(vehicleData.windows) do
+                        local part = vehicle:getPartById(partId)
+                        if part then
+                            local window = part:getWindow()
+                            if window then
+                                window:setOpen(windowData.isOpen or false)
+                            end
+                        end
+                    end
+                end
+
+                -- Restaurar la llave, puenteo y keyId
+                if vehicleData.hotwired then
                     vehicle:setHotwired(true)
-                else
-                    vehicle:setHotwired(false)
-                    vehicle:setKeysInIgnition(false)
+                end
+                if vehicleData.hasKey then
+                    vehicle:setKeysInIgnition(true)
+                end
+                if vehicleData.keyId and vehicleData.keyId > 0 then
+                    vehicle:setKeyId(vehicleData.keyId)
+                end
+                if vehicleData.trunkLocked then
+                    vehicle:setTrunkLocked(true)
                 end
 
                 -- Regresar nombre del itemEquiped
