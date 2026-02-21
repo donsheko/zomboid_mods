@@ -15,24 +15,23 @@ module SKOCapsule
         MetalValue = 0,
     }
 
-    /* TODO: Restaurar receta cuando SKO Crafteos este migrado a B42
     craftRecipe CraftearContenedorVehiculo
     {
         timedAction = Making,
-        time = 150,
+        time = 250,
         Tags = AnySurfaceCraft,
-        category = SKO,
+        category = Metalworking,
         inputs
         {
             item 1 tags[base:hammer] mode:keep flags[MayDegradeLight;Prop1],
             item 1 [Base.Screwdriver] mode:keep flags[MayDegradeLight;Prop2],
-            item 1 tags[base:saw] mode:keep flags[MayDegradeLight],
-            item 20 [SKOItems.MetalMoldeable],
+            item 3 [Base.MetalBar],
+            item 2 [Base.ElectronicsScrap],
+            item 2 [Base.LeatherStrips],
         }
         outputs
         {
             item 1 SKOCapsule.ContenedorVehiculos,
         }
     }
-    */
 }
