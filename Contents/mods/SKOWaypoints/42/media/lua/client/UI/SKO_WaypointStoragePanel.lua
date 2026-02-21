@@ -30,9 +30,9 @@ function SKOWaypointStoragePanel:createChildren()
     self.titleLabel.center = true
     self:addChild(self.titleLabel)
 
-    local listY = 40
+    local listY = 65
     local listWidth = (self.width / 2) - 15
-    local listHeight = self.height - 90
+    local listHeight = self.height - 115
 
     -- Labels de las listas
     self.lblInventory = ISLabel:new(10, listY - 20, 15, "Tu Inventario (Doble click para subir)", 1, 1, 1, 1, UIFont.Small, true)
