@@ -572,5 +572,8 @@ function OnServerCommand(module, command, args)
 end
 
 -- Registrar eventos
+Events.OnServerCommand.Remove(OnServerCommand)
 Events.OnServerCommand.Add(OnServerCommand)
+
+Events.OnFillWorldObjectContextMenu.Remove(AgregarOpcionVehiculo)
 Events.OnFillWorldObjectContextMenu.Add(AgregarOpcionVehiculo)
