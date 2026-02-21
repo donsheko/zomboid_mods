@@ -68,19 +68,18 @@ end
 function checkObjectisWaypoint(worldobject)
     if not worldobject then return false end
 
-    -- Verificar por nombre del objeto
+    -- Verificar si es un WorldInventoryItem (item tirado en el suelo)
+    if instanceof(worldobject, "IsoWorldInventoryObject") then
+        local item = worldobject:getItem()
+        if item and item:getFullType() == "SKO_Waypoint.Waypoint" then
+            return true
+        end
+    end
+
+    -- Por si se coloca como mobiliario en el futuro
     local ok, name = pcall(function() return worldobject:getName() end)
     if ok and name == "Waypoint" then
         return true
-    end
-
-    -- Verificar si es un WorldInventoryItem con un Waypoint
-    local ok2, objName = pcall(function() return worldobject:getObjectName() end)
-    if ok2 and objName == "WorldInventoryItem" then
-        local ok3, itemName = pcall(function() return worldobject:getItem():getName() end)
-        if ok3 and itemName == "Waypoint" then
-            return true
-        end
     end
 
     return false
@@ -171,11 +170,12 @@ end
 require "TimedActions/ISDropWorldItemAction"
 require "TimedActions/ISGrabItemAction"
 
-local original_drop_perform = ISDropWorldItemAction.perform
-function ISDropWorldItemAction:perform(...)
+local original_drop_complete = ISDropWorldItemAction.complete
+function ISDropWorldItemAction:complete(...)
     local fullType = self.item:getFullType()
     local sq = self.sq
-    original_drop_perform(self, ...)
+    
+    local ret = original_drop_complete(self, ...)
     
     if fullType == "SKO_Waypoint.Waypoint" and sq then
         -- Buscar el worldobject recien creado en el suelo
@@ -186,10 +186,13 @@ function ISDropWorldItemAction:perform(...)
                 -- Si no existe ya, lo agregamos en automatico
                 if checkWaypointExist(wo) < 0 then
                     addWaypoint(wo)
+                    print("SKOWaypoints: Auto-agregado tras DropAction")
                 end
             end
         end
     end
+    
+    return ret
 end
 
 local original_grab_transferItem = ISGrabItemAction.transferItem
