@@ -1,5 +1,6 @@
 require "ISUI/ISPanelJoypad"
 require "ISUI/ISScrollingListBox"
+require "ISUI/ISComboBox"
 
 SKOWaypointStoragePanel = ISPanelJoypad:derive("SKOWaypointStoragePanel")
 
@@ -30,15 +31,15 @@ function SKOWaypointStoragePanel:createChildren()
     self.titleLabel.center = true
     self:addChild(self.titleLabel)
 
-    local listY = 65
+    local listY = 85
     local listWidth = (self.width / 2) - 15
-    local listHeight = self.height - 115
+    local listHeight = self.height - 135
 
     -- Labels de las listas
     self.lblInventory = ISLabel:new(10, listY - 20, 15, "Tu Inventario (Doble click para subir)", 1, 1, 1, 1, UIFont.Small, true)
     self:addChild(self.lblInventory)
 
-    self.lblNetwork = ISLabel:new(self.width / 2 + 5, listY - 20, 15, "Red Waypoint (Doble click para bajar)", 1, 1, 1, 1, UIFont.Small, true)
+    self.lblNetwork = ISLabel:new(self.width / 2 + 5, listY - 20, 15, "Red Waypoint", 1, 1, 1, 1, UIFont.Small, true)
     self:addChild(self.lblNetwork)
 
     -- Lista izquierda: Inventario del jugador
@@ -62,6 +63,13 @@ function SKOWaypointStoragePanel:createChildren()
     self.listNetwork.backgroundColor = {r=0, g=0, b=0, a=0.5}
     self.listNetwork:setOnMouseDoubleClick(self, self.onDownloadItem)
     self:addChild(self.listNetwork)
+
+    -- Combobox para filtrar categorias de la Nube
+    local comboWidth = 140
+    self.comboCategory = ISComboBox:new(self.width - 10 - comboWidth, listY - 25, comboWidth, 20, self, self.onCategoryChange)
+    self.comboCategory:initialise()
+    self.comboCategory:addOption("Todos")
+    self:addChild(self.comboCategory)
 
     -- Boton cerrar
     local btnWid = 100
@@ -94,6 +102,7 @@ function SKOWaypointStoragePanel:refreshLists()
     -- Llenar Inventario (solo items top-level que no son equipados ni llaves esenciales)
     local player = getPlayer()
     local inv = player:getInventory()
+    local displayInv = {}
     for i = 0, inv:getItems():size() - 1 do
         local item = inv:getItems():get(i)
         if not item:isEquipped() and item:getType() ~= "KeyRing" then
@@ -114,25 +123,84 @@ function SKOWaypointStoragePanel:refreshLists()
                 text = text .. " (Hambre: " .. math.floor(item:getHungChange() * 100) .. ")"
             end
             
-            self.listInventory:addItem(text, data)
+            table.insert(displayInv, { text = text, data = data })
+        end
+    end
+    table.sort(displayInv, function(a, b) return a.text < b.text end)
+    for _, rowInfo in ipairs(displayInv) do
+        self.listInventory:addItem(rowInfo.text, rowInfo.data)
+    end
+
+    -- Extraer categorias unicas dinamicamente
+    local globalItems = player:getModData().skoGlobalItems
+    local uniqueCategories = {}
+    for _, itemData in ipairs(globalItems) do
+        -- Si es un item viejo sin categoria, tratar de adivinar o poner Sin Clasificar
+        local cat = itemData.category
+        if not cat then
+            if itemData.isWeapon then cat = getText("IGUI_ItemCat_Weapon") or "Weapon"
+            elseif itemData.isClothing then cat = getText("IGUI_ItemCat_Clothing") or "Clothing"
+            elseif itemData.isFood then cat = getText("IGUI_ItemCat_Food") or "Food"
+            elseif itemData.isMedical then cat = getText("IGUI_ItemCat_Medical") or "Medical"
+            else cat = "Sin Clasificar" end
+        end
+        uniqueCategories[cat] = true
+    end
+
+    -- Reconstruir combobox manteniendo la seleccion
+    local currentSelection = "Todos"
+    if self.comboCategory then
+        currentSelection = self.comboCategory:getSelectedText() or "Todos"
+        self.comboCategory:clear()
+        self.comboCategory:addOption("Todos")
+        for cat, _ in pairs(uniqueCategories) do
+            self.comboCategory:addOption(cat)
+        end
+        self.comboCategory:select(currentSelection)
+        if self.comboCategory.selected <= 0 then
+            self.comboCategory:select("Todos")
         end
     end
 
-    -- Llenar Nube
-    local globalItems = player:getModData().skoGlobalItems
+    local selectedCategory = nil
+    if self.comboCategory then
+        selectedCategory = self.comboCategory:getSelectedText()
+    end
+
+    local displayNet = {}
     for index, itemData in ipairs(globalItems) do
-        local text = itemData.name
-        if itemData.condition and (itemData.isWeapon or itemData.isClothing) then
-            text = text .. " (Cond: " .. itemData.condition .. ")"
+        local cat = itemData.category
+        if not cat then
+            if itemData.isWeapon then cat = getText("IGUI_ItemCat_Weapon") or "Weapon"
+            elseif itemData.isClothing then cat = getText("IGUI_ItemCat_Clothing") or "Clothing"
+            elseif itemData.isFood then cat = getText("IGUI_ItemCat_Food") or "Food"
+            elseif itemData.isMedical then cat = getText("IGUI_ItemCat_Medical") or "Medical"
+            else cat = "Sin Clasificar" end
         end
-        if itemData.usedDelta then
-            text = text .. " (Restante: " .. math.floor(itemData.usedDelta * 100) .. "%)"
+
+        local showItem = true
+        if selectedCategory and selectedCategory ~= "Todos" then
+            if selectedCategory ~= cat then showItem = false end
         end
-        if itemData.hungChange then
-            text = text .. " (Hambre: " .. math.floor(itemData.hungChange * 100) .. ")"
+
+        if showItem then
+            local text = itemData.name
+            if itemData.condition and (itemData.isWeapon or itemData.isClothing) then
+                text = text .. " (Cond: " .. itemData.condition .. ")"
+            end
+            if itemData.usedDelta then
+                text = text .. " (Restante: " .. math.floor(itemData.usedDelta * 100) .. "%)"
+            end
+            if itemData.hungChange then
+                text = text .. " (Hambre: " .. math.floor(itemData.hungChange * 100) .. ")"
+            end
+            itemData.networkIndex = index -- Guardamos su indice para poder borrarlo
+            table.insert(displayNet, { text = text, data = itemData })
         end
-        itemData.networkIndex = index -- Guardamos su indice para poder borrarlo
-        self.listNetwork:addItem(text, itemData)
+    end
+    table.sort(displayNet, function(a, b) return a.text < b.text end)
+    for _, rowInfo in ipairs(displayNet) do
+        self.listNetwork:addItem(rowInfo.text, rowInfo.data)
     end
 
     -- Restaurar scrolls
@@ -140,30 +208,176 @@ function SKOWaypointStoragePanel:refreshLists()
     self.listNetwork:setYScroll(netScroll)
 end
 
+-- ==========================================
+-- Funciones robustas de serializacion de Items 
+-- (Compatibilidad con SKO Capsule)
+-- ==========================================
+local function serializeItemData(item)
+    if not item then return nil end
+    local customData = {}
+
+    if instanceof(item, "DrainableComboItem") then
+        customData.uses = item:getUsedDelta()
+    end
+
+    if instanceof(item, "HandWeapon") then
+        customData.ammo = item:getCurrentAmmoCount()
+        -- Guardar posibles aditamentos del arma
+        customData.parts = {}
+        if item:getScope() then customData.parts.Scope = serializeItemData(item:getScope()) end
+        if item:getClip() then customData.parts.Clip = serializeItemData(item:getClip()) end
+        if item:getSling() then customData.parts.Sling = serializeItemData(item:getSling()) end
+        if item:getStock() then customData.parts.Stock = serializeItemData(item:getStock()) end
+        if item:getCanon() then customData.parts.Canon = serializeItemData(item:getCanon()) end
+        if item:getRecoilpad() then customData.parts.Recoilpad = serializeItemData(item:getRecoilpad()) end
+    end
+
+    if instanceof(item, "Food") then
+        customData.food = {
+            hungerChange = item:getHungChange(),
+            thirst = item:getThirstChange(),
+            boredom = item:getBoredomChange(),
+            unhappy = item:getUnhappyChange(),
+            carbs = item:getCarbohydrates(),
+            lipids = item:getLipids(),
+            proteins = item:getProteins(),
+            calories = item:getCalories(),
+            tained = item:isTaintedWater(), 
+            cooked = item:isCooked(),
+            burn = item:isBurnt(),
+            freshness = item:getAge(),
+            rotten = item:isRotten(),
+        }
+    end
+
+    -- Respaldar posibles custom properties inyectadas por otros mods
+    local modDataOut = nil
+    local itemModData = item:getModData()
+    if itemModData then
+        modDataOut = {}
+        for k,v in pairs(itemModData) do
+            if type(v) ~= "userdata" and type(v) ~= "function" then
+                modDataOut[k] = v
+            end
+        end
+    end
+
+    local serialized = {
+        fullType = item:getFullType(),
+        name = item:getDisplayName(),
+        condition = item:getCondition(),
+        customData = customData,
+        modData = modDataOut,
+        inventory = {}
+    }
+
+    -- Guardar de forma recursiva todo el inventario de las mochilas/recipientes
+    if item:IsInventoryContainer() then
+        local inv = item:getInventory()
+        if inv then
+            for i = 0, inv:getItems():size() - 1 do
+                local innerItem = inv:getItems():get(i)
+                table.insert(serialized.inventory, serializeItemData(innerItem))
+            end
+        end
+    end
+
+    return serialized
+end
+
+local function deserializeItemData(itemData)
+    if not itemData then return nil end
+    local newItem = instanceItem(itemData.fullType)
+    if not newItem then return nil end
+
+    if itemData.condition then
+        newItem:setCondition(itemData.condition)
+    end
+
+    local cData = itemData.customData
+    if cData then
+        if cData.uses and instanceof(newItem, "DrainableComboItem") then
+            newItem:setUsedDelta(cData.uses)
+        end
+        if cData.ammo and instanceof(newItem, "HandWeapon") then
+            newItem:setCurrentAmmoCount(cData.ammo)
+            if cData.parts then
+                if cData.parts.Scope then newItem:attachWeaponPart(deserializeItemData(cData.parts.Scope)) end
+                if cData.parts.Clip then newItem:attachWeaponPart(deserializeItemData(cData.parts.Clip)) end
+                if cData.parts.Sling then newItem:attachWeaponPart(deserializeItemData(cData.parts.Sling)) end
+                if cData.parts.Stock then newItem:attachWeaponPart(deserializeItemData(cData.parts.Stock)) end
+                if cData.parts.Canon then newItem:attachWeaponPart(deserializeItemData(cData.parts.Canon)) end
+                if cData.parts.Recoilpad then newItem:attachWeaponPart(deserializeItemData(cData.parts.Recoilpad)) end
+            end
+        end
+        if cData.food and instanceof(newItem, "Food") then
+            local f = cData.food
+            if f.hungerChange then newItem:setHungChange(f.hungerChange) end
+            if f.thirst then newItem:setThirstChange(f.thirst) end
+            if f.boredom then newItem:setBoredomChange(f.boredom) end
+            if f.unhappy then newItem:setUnhappyChange(f.unhappy) end
+            if f.carbs then newItem:setCarbohydrates(f.carbs) end
+            if f.lipids then newItem:setLipids(f.lipids) end
+            if f.proteins then newItem:setProteins(f.proteins) end
+            if f.calories then newItem:setCalories(f.calories) end
+            if f.tained ~= nil then newItem:setTaintedWater(f.tained) end
+            if f.cooked ~= nil then newItem:setCooked(f.cooked) end
+            if f.burn ~= nil then newItem:setBurnt(f.burn) end
+            if f.freshness then newItem:setAge(f.freshness) end
+            if f.rotten ~= nil then newItem:setRotten(f.rotten) end
+        end
+    end
+
+    if itemData.modData then
+        local mData = newItem:getModData()
+        for k,v in pairs(itemData.modData) do
+            mData[k] = v
+        end
+    end
+
+    if itemData.inventory and #itemData.inventory > 0 and newItem:IsInventoryContainer() then
+        local container = newItem:getInventory()
+        if container then
+            for _, innerData in ipairs(itemData.inventory) do
+                local innerItem = deserializeItemData(innerData)
+                if innerItem then
+                    container:AddItem(innerItem)
+                end
+            end
+        end
+    end
+
+    return newItem
+end
+
 function SKOWaypointStoragePanel:onUploadItem(itemData)
     local player = getPlayer()
     local realItem = itemData.realItem
     if not realItem then return end
 
-    -- Preparar serializacion basica para salvar al modData
-    local serialized = {
-        fullType = realItem:getFullType(),
-        name = realItem:getDisplayName(),
-        condition = realItem:getCondition(),
-        isWeapon = realItem:IsWeapon(),
-        isClothing = realItem:IsClothing(),
-        isFood = realItem:IsFood(),
-        isDrainable = realItem:IsDrainable()
-    }
+    -- Obtiene la categoria nativa traducida que el juego le asigna (Ej: "Arma Larga", "Material", "Comida")
+    local catStr = realItem:getDisplayCategory()
+    if catStr then 
+        catStr = getText("IGUI_ItemCat_" .. catStr) or catStr 
+    else 
+        catStr = realItem:getCategory() or "Sin Clasificar" 
+    end
+
+    -- Realizar serializacion profunda
+    local serialized = serializeItemData(realItem)
+    
+    -- Agregar variables necesarias para que las listas de la UI funcionen bien (visual)
+    serialized.category = catStr
+    serialized.isWeapon = realItem:IsWeapon()
+    serialized.isClothing = realItem:IsClothing()
+    serialized.isFood = realItem:IsFood()
+    serialized.isDrainable = realItem:IsDrainable()
 
     if serialized.isDrainable then
         serialized.usedDelta = realItem:getUsedDelta()
     end
     if serialized.isFood then
         serialized.hungChange = realItem:getHungChange()
-        serialized.baseHunger = realItem:getBaseHunger()
-        serialized.thirstChange = realItem:getThirstChange()
-        serialized.calories = realItem:getCalories()
     end
 
     -- Remueve item del jugador y sube a modData
@@ -181,25 +395,11 @@ function SKOWaypointStoragePanel:onDownloadItem(itemData)
 
     if not removeIndex or not globalItems[removeIndex] then return end
 
-    -- Re-crear el item
-    local newItem = instanceItem(itemData.fullType)
+    -- Re-crear el item recursivamente con todos sus contenidos y customDatas
+    local newItem = deserializeItemData(itemData)
     if not newItem then
         print("SKOWaypoints: No se pudo recrear el item " .. tostring(itemData.fullType))
         return
-    end
-
-    -- Restaurar propiedades basicas
-    if (itemData.isWeapon or itemData.isClothing) and itemData.condition then
-        newItem:setCondition(itemData.condition)
-    end
-    if itemData.isDrainable and itemData.usedDelta then
-        newItem:setUsedDelta(itemData.usedDelta)
-    end
-    if itemData.isFood then
-        if itemData.hungChange then newItem:setHungChange(itemData.hungChange) end
-        if itemData.baseHunger then newItem:setBaseHunger(itemData.baseHunger) end
-        if itemData.thirstChange then newItem:setThirstChange(itemData.thirstChange) end
-        if itemData.calories then newItem:setCalories(itemData.calories) end
     end
 
     -- Entregar al jugador y borrar de la red
