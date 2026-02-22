@@ -24,6 +24,17 @@ module SKO_Waypoint
         Icon = Waypoint,
     }
 
+    item RemoteWP
+    {
+        DisplayCategory = Electronics,
+        ItemType = base:normal,
+        Weight = 0.4,
+        DisplayName = Control Remoto Waypoints,
+        Icon = RemoteCrafted,
+        WorldStaticModel = RemoteController,
+        Tags = base:hasmetal,
+    }
+
     craftRecipe CrearWaypoint
     {
         timedAction = Making,
@@ -41,6 +52,27 @@ module SKO_Waypoint
         outputs
         {
             item 1 SKO_Waypoint.Waypoint,
+        }
+    }
+
+    craftRecipe CrearRemoteWP
+    {
+        timedAction = MakingElectrical,
+        time = 200,
+        Tags = AnySurfaceCraft,
+        category = Electrical,
+        SkillRequired = Electricity:1,
+        xpAward = Electricity:4,
+        inputs
+        {
+            item 1 tags[base:hammer] mode:keep flags[MayDegradeLight;Prop1],
+            item 1 tags[base:screwdriver] mode:keep flags[MayDegradeLight],
+            item 2 [Base.ElectronicsScrap],
+            item 1 [Base.ElectricWire],
+        }
+        outputs
+        {
+            item 1 SKO_Waypoint.RemoteWP,
         }
     }
 }

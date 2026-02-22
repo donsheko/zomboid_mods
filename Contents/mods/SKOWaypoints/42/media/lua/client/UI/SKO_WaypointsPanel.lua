@@ -2,6 +2,7 @@ require "ISUI/ISPanelJoypad"
 require "ISUI/ISScrollingListBox"
 
 -- Panel principal de Waypoints - Build 42
+-- Las opciones de abrir este panel vienen desde el Control Remoto de Waypoints (SKO_WaypointRemote.lua)
 SKOWaypointsPanel = ISPanelJoypad:derive("SKOWaypointsPanel")
 
 function SKOWaypointsPanel:new(x, y, width, height)
@@ -42,14 +43,17 @@ function SKOWaypointsPanel:createChildren()
     self.titleLabel.center = true
     self:addChild(self.titleLabel)
 
-    -- Lista de waypoints
+    -- Lista de waypoints (deja espacio arriba para el titulo y abajo para botones)
     self:createWaypointsList()
 
-    -- Boton cerrar
-    local buttonWid = 100
+    -- Fila de botones inferior
+    local buttonWid = 90
     local buttonHgt = 25
-    local buttonX = self.width - buttonWid - 10
     local buttonY = self.height - buttonHgt - 10
+    local margin = 8
+
+    -- Boton Cerrar (derecha)
+    local buttonX = self.width - buttonWid - margin
     self.closeButton = ISButton:new(buttonX, buttonY, buttonWid, buttonHgt, "Cerrar", self, self.onCloseButtonClick)
     self.closeButton.internal = "CLOSE"
     self.closeButton.anchorTop = false
@@ -60,26 +64,62 @@ function SKOWaypointsPanel:createChildren()
     self.closeButton.borderColor = {r=1, g=1, b=1, a=0.1}
     self:addChild(self.closeButton)
 
-    -- Boton ultima posicion
+    -- Boton Eliminar Waypoint (centro-derecha)
+    buttonX = buttonX - buttonWid - margin
+    self.deleteButton = ISButton:new(buttonX, buttonY, buttonWid, buttonHgt, "Eliminar", self, self.onDeleteButtonClick)
+    self.deleteButton.internal = "DELETE"
+    self.deleteButton.anchorTop = false
+    self.deleteButton.anchorBottom = true
+    self.deleteButton.anchorRight = true
+    self.deleteButton:initialise()
+    self.deleteButton:instantiate()
+    self.deleteButton.borderColor = {r=1, g=0.3, b=0.3, a=0.3}
+    self:addChild(self.deleteButton)
+
+    -- Boton Renombrar Waypoint (centro)
+    buttonX = buttonX - buttonWid - margin
+    self.renameButton = ISButton:new(buttonX, buttonY, buttonWid, buttonHgt, "Renombrar", self, self.onRenameButtonClick)
+    self.renameButton.internal = "RENAME"
+    self.renameButton.anchorTop = false
+    self.renameButton.anchorBottom = true
+    self.renameButton.anchorRight = true
+    self.renameButton:initialise()
+    self.renameButton:instantiate()
+    self.renameButton.borderColor = {r=1, g=1, b=1, a=0.1}
+    self:addChild(self.renameButton)
+
+    -- Boton Ultima Posicion (izquierda)
     if ultimaPosicion and ultimaPosicion.x and ultimaPosicion.y and ultimaPosicion.z then
-        buttonX = buttonX - buttonWid - 10
-        self.lastPositionButton = ISButton:new(buttonX, buttonY, buttonWid, buttonHgt, "Ultima Ubicacion", self, self.onLastPositionButtonClick)
+        buttonX = buttonX - buttonWid - margin
+        self.lastPositionButton = ISButton:new(buttonX, buttonY, buttonWid, buttonHgt, "< Volver", self, self.onLastPositionButtonClick)
         self.lastPositionButton.internal = "LastPositionTP"
         self.lastPositionButton.anchorTop = false
         self.lastPositionButton.anchorBottom = true
         self.lastPositionButton.anchorRight = true
         self.lastPositionButton:initialise()
         self.lastPositionButton:instantiate()
-        self.lastPositionButton.borderColor = {r=1, g=1, b=1, a=0.1}
+        self.lastPositionButton.borderColor = {r=0.3, g=0.8, b=0.3, a=0.2}
         self:addChild(self.lastPositionButton)
     end
+
+    -- Pequeña pista de uso
+    local hintHgt = getTextManager():getFontFromEnum(UIFont.NewSmall):getLineHeight()
+    local hintY = self.height - buttonHgt - hintHgt - 14
+    self.hintLabel = ISLabel:new(self.width / 2, hintY, hintHgt, "[ Doble click = Teleportarse ]", 0.6, 0.6, 0.6, 1, UIFont.NewSmall, true)
+    self.hintLabel:initialise()
+    self.hintLabel:instantiate()
+    self.hintLabel.center = true
+    self.hintLabel.anchorTop = false
+    self.hintLabel.anchorBottom = true
+    self:addChild(self.hintLabel)
 end
 
 function SKOWaypointsPanel:createWaypointsList()
     initModTable()
     local waypointsTable = getPlayer():getModData().skoWaypoints
 
-    self.PanelWaypoints = ISScrollingListBox:new(10, 40, self.width - 20, self.height - 120)
+    -- La lista ocupa el espacio central dejando margen para hint + botones abajo (60px)
+    self.PanelWaypoints = ISScrollingListBox:new(10, 40, self.width - 20, self.height - 125)
     self.PanelWaypoints:initialise()
     self.PanelWaypoints:instantiate()
     self.PanelWaypoints.itemheight = 25
@@ -98,6 +138,7 @@ function SKOWaypointsPanel:createWaypointsList()
             item.x = waypoint.x
             item.y = waypoint.y
             item.z = waypoint.z
+            item.index = k
             item.text = item.name .. " (" .. math.floor(item.x) .. ", " .. math.floor(item.y) .. ", " .. math.floor(item.z) .. ")"
             self.PanelWaypoints:addItem(item.text, item)
         end
@@ -123,6 +164,7 @@ function SKOWaypointsPanel:refreshWaypointsList()
             item.x = waypoint.x
             item.y = waypoint.y
             item.z = waypoint.z
+            item.index = k
             item.text = item.name .. " (" .. math.floor(item.x) .. ", " .. math.floor(item.y) .. ", " .. math.floor(item.z) .. ")"
             self.PanelWaypoints:addItem(item.text, item)
         end
@@ -136,6 +178,20 @@ function SKOWaypointsPanel:refreshWaypointsList()
     end
     self.PanelWaypoints:setYScroll(scrollY)
 end
+
+-- Obtiene el item actualmente seleccionado en la lista (o nil si no hay seleccion valida)
+function SKOWaypointsPanel:getSelectedItem()
+    if not self.PanelWaypoints then return nil end
+    local sel = self.PanelWaypoints.selected
+    if sel and sel > 0 and self.PanelWaypoints.items[sel] then
+        return self.PanelWaypoints.items[sel].item
+    end
+    return nil
+end
+
+-- ===========================
+-- Callbacks de botones
+-- ===========================
 
 function SKOWaypointsPanel:onDoubleClick(item)
     local player = getPlayer()
@@ -151,22 +207,47 @@ function SKOWaypointsPanel:onLastPositionButtonClick()
     end
 end
 
+--- Boton Renombrar: abre un cuadro de texto para renombrar el waypoint seleccionado
+function SKOWaypointsPanel:onRenameButtonClick()
+    local selectedItem = self:getSelectedItem()
+    if not selectedItem then
+        -- No hay waypoint seleccionado, no hacemos nada
+        return
+    end
+    local waypointIndex = selectedItem.index
+    if not waypointIndex then return end
+
+    local waypointsTable = getPlayer():getModData().skoWaypoints
+    if waypointsTable and waypointsTable[waypointIndex] then
+        local currentName = waypointsTable[waypointIndex].name
+        local modal = ISTextBox:new(0, 0, 280, 180, "Nuevo nombre para el Waypoint:", currentName, nil, onRenombrarWaypointPrompt, getPlayer():getPlayerNum(), getPlayer(), waypointIndex)
+        modal:initialise()
+        modal:addToUIManager()
+    end
+end
+
+--- Boton Eliminar: elimina el waypoint seleccionado con confirmacion
+function SKOWaypointsPanel:onDeleteButtonClick()
+    local selectedItem = self:getSelectedItem()
+    if not selectedItem then return end
+
+    local waypointIndex = selectedItem.index
+    if not waypointIndex then return end
+
+    -- Llamamos a la funcion de SKO_Waypoints_handle.lua
+    eliminarWaypoint(nil, waypointIndex)
+    self:refreshWaypointsList()
+end
+
 function SKOWaypointsPanel:onCloseButtonClick()
     self:removeFromUIManager()
     self:close()
     SKOWaypointsPanel.instance = nil
 end
 
-local function openSKOWaypointsPanel()
-    if SKOWaypointsPanel.instance then
-        SKOWaypointsPanel.instance:removeFromUIManager()
-        SKOWaypointsPanel.instance:close()
-        SKOWaypointsPanel.instance = nil
-    end
-    local ui = SKOWaypointsPanel:new(150, 150, 350, 420)
-    ui:initialise()
-    ui:addToUIManager()
-end
+-- ===========================
+-- Teleporte
+-- ===========================
 
 function teleportPlayerTo(x, y, z)
     local player = getPlayer()
@@ -185,9 +266,3 @@ function teleportPlayerTo(x, y, z)
         player:teleportTo(tonumber(x), tonumber(y), tonumber(z))
     end
 end
-
-function agregarOpcionMenuWaypoints(player, context, worldObjects)
-    context:addOption("SKO Waypoints", worldObjects, openSKOWaypointsPanel)
-end
-
-Events.OnFillWorldObjectContextMenu.Add(agregarOpcionMenuWaypoints)

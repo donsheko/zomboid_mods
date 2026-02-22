@@ -94,45 +94,6 @@ function eliminarWaypoint(worldObject, waypointIndex)
     print("SKOWaypoints: Waypoint eliminado")
 end
 
-function OnFillWorldObjectContextMenu_Waypoints(playerIndex, context, worldobjects, test)
-    local squares = {}
-    local checkedSquares = {}
-    local wObjects = {}
-
-    for _,v in ipairs(worldobjects) do
-        local sq = nil
-        pcall(function() sq = v:getSquare() end)
-        if sq and not checkedSquares[sq] then
-            table.insert(squares, sq)
-            checkedSquares[sq] = true
-        end
-    end
-
-    if #squares == 0 then
-        return
-    end
-
-    for _,v in ipairs(squares) do
-        for i = 0, v:getObjects():size() - 1 do
-            table.insert(wObjects, v:getObjects():get(i))
-        end
-    end
-
-    if #wObjects == 0 then
-        return
-    end
-
-    for i, worldobject in ipairs(wObjects) do
-        if checkObjectisWaypoint(worldobject) then           
-            local waypointIndex = checkWaypointExist(worldobject)
-            -- Solo mostrar opciones si el waypoint esta registrado
-            if waypointIndex and waypointIndex > 0 then
-                context:addOption("Renombrar Waypoint", worldobject, renombrarWaypoint, waypointIndex)
-                context:addOption("Nube Waypoint (Transmisor)", worldobject, openSKOWaypointStorage)
-            end
-        end
-    end
-end
 
 function renombrarWaypoint(worldObject, waypointIndex)
     local waypointsTable = getPlayer():getModData().skoWaypoints
@@ -211,5 +172,3 @@ function ISGrabItemAction:transferItem(item, ...)
         eliminarWaypoint(item, idx)
     end
 end
-
-Events.OnFillWorldObjectContextMenu.Add(OnFillWorldObjectContextMenu_Waypoints)
