@@ -152,7 +152,7 @@ function SKOExperiencePanel:refreshHabilidades()
 end
 
 function SKOExperiencePanel:menuHabilidades()
-    self.PanelHabilidades = ISScrollingListBox:new(10, 150, self.width - 20, self.height - 200)
+    self.PanelHabilidades = ISScrollingListBox:new(10, 190, self.width - 20, self.height - 240)
     self.PanelHabilidades:initialise()
     self.PanelHabilidades:instantiate()
     self.PanelHabilidades.itemheight = 25
