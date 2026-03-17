@@ -2,7 +2,8 @@ module SKOCapsule
 {
     imports
     {
-        Base
+        Base,
+        SKO_Shared
     }
 
     item ContenedorVehiculos

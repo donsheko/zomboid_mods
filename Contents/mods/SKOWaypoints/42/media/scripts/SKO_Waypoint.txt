@@ -11,7 +11,8 @@ module SKO_Waypoint
 {
     imports
     {
-        Base
+        Base,
+        SKO_Shared
     }
 
     item Waypoint

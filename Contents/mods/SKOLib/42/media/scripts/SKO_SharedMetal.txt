@@ -58,7 +58,7 @@ module SKO_Shared
         inputs
         {
             item 1 tags[base:hammer] mode:keep,
-            item 3 [Base.Fork;Base.Spoon;Base.BreadKnife;Base.KitchenKnife;Base.SteakKnife;Base.PairingKnife;Base.ButterKnife],
+            item 1 [Base.Fork;Base.Spoon;Base.BreadKnife;Base.KitchenKnife;Base.SteakKnife;Base.KnifeParing;Base.ButterKnife],
         }
         outputs
         {
