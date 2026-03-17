@@ -52,55 +52,52 @@ function SKOWaypointsPanel:createChildren()
     local buttonY = self.height - buttonHgt - 10
     local margin = 8
 
-    -- Boton Cerrar (derecha)
-    local buttonX = self.width - buttonWid - margin
-    self.closeButton = ISButton:new(buttonX, buttonY, buttonWid, buttonHgt, "Cerrar", self, self.onCloseButtonClick)
-    self.closeButton.internal = "CLOSE"
-    self.closeButton.anchorTop = false
-    self.closeButton.anchorBottom = true
-    self.closeButton.anchorRight = true
-    self.closeButton:initialise()
-    self.closeButton:instantiate()
-    self.closeButton.borderColor = {r=1, g=1, b=1, a=0.1}
-    self:addChild(self.closeButton)
-
-    -- Boton Eliminar Waypoint (centro-derecha)
-    buttonX = buttonX - buttonWid - margin
-    self.deleteButton = ISButton:new(buttonX, buttonY, buttonWid, buttonHgt, "Eliminar", self, self.onDeleteButtonClick)
-    self.deleteButton.internal = "DELETE"
-    self.deleteButton.anchorTop = false
-    self.deleteButton.anchorBottom = true
-    self.deleteButton.anchorRight = true
-    self.deleteButton:initialise()
-    self.deleteButton:instantiate()
-    self.deleteButton.borderColor = {r=1, g=0.3, b=0.3, a=0.3}
-    self:addChild(self.deleteButton)
-
-    -- Boton Renombrar Waypoint (centro)
-    buttonX = buttonX - buttonWid - margin
-    self.renameButton = ISButton:new(buttonX, buttonY, buttonWid, buttonHgt, "Renombrar", self, self.onRenameButtonClick)
-    self.renameButton.internal = "RENAME"
-    self.renameButton.anchorTop = false
-    self.renameButton.anchorBottom = true
-    self.renameButton.anchorRight = true
-    self.renameButton:initialise()
-    self.renameButton:instantiate()
-    self.renameButton.borderColor = {r=1, g=1, b=1, a=0.1}
-    self:addChild(self.renameButton)
-
-    -- Boton Ultima Posicion (izquierda)
+    -- Calcular cuántos botones hay para centrarlos
+    local buttonsToShow = {}
     if ultimaPosicion and ultimaPosicion.x and ultimaPosicion.y and ultimaPosicion.z then
-        buttonX = buttonX - buttonWid - margin
-        self.lastPositionButton = ISButton:new(buttonX, buttonY, buttonWid, buttonHgt, "< Volver", self, self.onLastPositionButtonClick)
-        self.lastPositionButton.internal = "LastPositionTP"
-        self.lastPositionButton.anchorTop = false
-        self.lastPositionButton.anchorBottom = true
-        self.lastPositionButton.anchorRight = true
-        self.lastPositionButton:initialise()
-        self.lastPositionButton:instantiate()
-        self.lastPositionButton.borderColor = {r=0.3, g=0.8, b=0.3, a=0.2}
-        self:addChild(self.lastPositionButton)
+        table.insert(buttonsToShow, "VOLVER")
     end
+    table.insert(buttonsToShow, "RENAME")
+    table.insert(buttonsToShow, "DELETE")
+    table.insert(buttonsToShow, "CLOSE")
+
+    local totalWidth = (#buttonsToShow * buttonWid) + ((#buttonsToShow - 1) * margin)
+    local startX = (self.width - totalWidth) / 2
+
+    for i, btnType in ipairs(buttonsToShow) do
+        local currX = startX + (i-1) * (buttonWid + margin)
+        
+        if btnType == "VOLVER" then
+            self.lastPositionButton = ISButton:new(currX, buttonY, buttonWid, buttonHgt, "< Volver", self, self.onLastPositionButtonClick)
+            self.lastPositionButton.internal = "LastPositionTP"
+            self.lastPositionButton:initialise()
+            self.lastPositionButton:instantiate()
+            self.lastPositionButton.borderColor = {r=0.3, g=0.8, b=0.3, a=0.2}
+            self:addChild(self.lastPositionButton)
+        elseif btnType == "RENAME" then
+            self.renameButton = ISButton:new(currX, buttonY, buttonWid, buttonHgt, "Renombrar", self, self.onRenameButtonClick)
+            self.renameButton.internal = "RENAME"
+            self.renameButton:initialise()
+            self.renameButton:instantiate()
+            self.renameButton.borderColor = {r=1, g=1, b=1, a=0.1}
+            self:addChild(self.renameButton)
+        elseif btnType == "DELETE" then
+            self.deleteButton = ISButton:new(currX, buttonY, buttonWid, buttonHgt, "Eliminar", self, self.onDeleteButtonClick)
+            self.deleteButton.internal = "DELETE"
+            self.deleteButton:initialise()
+            self.deleteButton:instantiate()
+            self.deleteButton.borderColor = {r=1, g=0.3, b=0.3, a=0.3}
+            self:addChild(self.deleteButton)
+        elseif btnType == "CLOSE" then
+            self.closeButton = ISButton:new(currX, buttonY, buttonWid, buttonHgt, "Cerrar", self, self.onCloseButtonClick)
+            self.closeButton.internal = "CLOSE"
+            self.closeButton:initialise()
+            self.closeButton:instantiate()
+            self.closeButton.borderColor = {r=1, g=1, b=1, a=0.1}
+            self:addChild(self.closeButton)
+        end
+    end
+
 
     -- Pequeña pista de uso
     local hintHgt = getTextManager():getFontFromEnum(UIFont.NewSmall):getLineHeight()

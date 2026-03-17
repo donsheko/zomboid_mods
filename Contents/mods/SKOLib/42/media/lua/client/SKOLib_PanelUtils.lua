@@ -21,7 +21,7 @@ function SKOLib.PanelUtils.openWaypointsPanel()
         SKOWaypointsPanel.instance = nil
         return
     end
-    local ui = SKOWaypointsPanel:new(150, 150, 350, 420)
+    local ui = SKOWaypointsPanel:new(150, 150, 400, 420)
     ui:initialise()
     ui:addToUIManager()
 end
