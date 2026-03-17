@@ -1,0 +1,4 @@
+UI_ES = {
+    UI_options_controls_SKO_OpenWaypoints = "Abrir Panel de Waypoints",
+    UI_options_controls_SKO_OpenStorage = "Abrir Nube (Transmisor)",
+}
