@@ -1,0 +1,68 @@
+module SKO_Shared
+{
+    imports
+    {
+        Base
+    }
+
+    item MetalReciclado
+    {
+        DisplayCategory = Material,
+        ItemType = base:normal,
+        Weight = 0.2,
+        DisplayName = Metal Reciclado,
+        Icon = ScrapMetal,
+        WorldStaticModel = ScrapMetal,
+    }
+
+    craftRecipe ReciclarBisagra
+    {
+        timedAction = Making,
+        time = 50,
+        Tags = AnySurfaceCraft,
+        category = Metalworking,
+        inputs
+        {
+            item 1 tags[base:hammer] mode:keep,
+            item 1 [Base.Hinge],
+        }
+        outputs
+        {
+            item 1 SKO_Shared.MetalReciclado,
+        }
+    }
+
+    craftRecipe ReciclarPomo
+    {
+        timedAction = Making,
+        time = 70,
+        Tags = AnySurfaceCraft,
+        category = Metalworking,
+        inputs
+        {
+            item 1 tags[base:hammer] mode:keep,
+            item 1 [Base.Doorknob],
+        }
+        outputs
+        {
+            item 2 SKO_Shared.MetalReciclado,
+        }
+    }
+
+    craftRecipe ReciclarCubiertos
+    {
+        timedAction = Making,
+        time = 40,
+        Tags = AnySurfaceCraft,
+        category = Metalworking,
+        inputs
+        {
+            item 1 tags[base:hammer] mode:keep,
+            item 3 [Base.Fork;Base.Spoon;Base.BreadKnife;Base.KitchenKnife;Base.SteakKnife;Base.PairingKnife;Base.ButterKnife],
+        }
+        outputs
+        {
+            item 1 SKO_Shared.MetalReciclado,
+        }
+    }
+}

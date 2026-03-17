@@ -25,7 +25,7 @@ module SKOCapsule
         {
             item 1 tags[base:hammer] mode:keep flags[MayDegradeLight;Prop1],
             item 1 [Base.Screwdriver] mode:keep flags[MayDegradeLight;Prop2],
-            item 3 [Base.IronBar],
+            item 5 [SKO_Shared.MetalReciclado],
             item 2 [Base.ElectronicsScrap],
             item 2 [Base.LeatherStrips],
         }
@@ -34,4 +34,4 @@ module SKOCapsule
             item 1 SKOCapsule.ContenedorVehiculos,
         }
     }
-}
+}

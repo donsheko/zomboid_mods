@@ -45,7 +45,7 @@ module SKO_Waypoint
         {
             item 1 tags[base:hammer] mode:keep flags[MayDegradeLight;Prop1],
             item 1 [Base.Screwdriver] mode:keep flags[MayDegradeLight;Prop2],
-            item 2 [Base.IronBar],
+            item 3 [SKO_Shared.MetalReciclado],
             item 2 [Base.ElectronicsScrap],
         }
         outputs

@@ -30,9 +30,6 @@ local function OnFillInventoryContextMenu_RemoteWP(playerIndex, context, items)
 
     if not hasRemote then return end
 
-    -- Separador visual para distinguir nuestras opciones
-    context:addOption("─── SKO Waypoints ───", nil, nil)
-
     -- Opción 1: Abrir el panel de Waypoints
     context:addOption("Ver Waypoints", nil, SKOLib.PanelUtils.openWaypointsPanel)
 
