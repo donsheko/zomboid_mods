@@ -47,7 +47,6 @@ module SKO_Waypoint
             item 1 [Base.Screwdriver] mode:keep flags[MayDegradeLight;Prop2],
             item 2 [Base.IronBar],
             item 2 [Base.ElectronicsScrap],
-            item 1 [Base.ElectricWire],
         }
         outputs
         {
