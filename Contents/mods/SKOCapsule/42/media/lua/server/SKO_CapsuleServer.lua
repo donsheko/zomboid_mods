@@ -7,7 +7,12 @@ local function OnClientCommand(module, command, player, args)
             end
         elseif command == "spawnVehicle" then
             local sq = getCell():getGridSquare(args.x, args.y, args.z)
-            if not sq then return end
+            
+            -- Validación extra en servidor
+            if not sq or args.z > 0 or sq:getRoom() or not sq:isOutside() then
+                sendServerCommand(player, "SKO_Capsule", "spawnFailed", {})
+                return 
+            end
             
             local vehicle = addVehicleDebug(args.name, args.dir, args.status, sq)
             if vehicle then
@@ -21,6 +26,8 @@ local function OnClientCommand(module, command, player, args)
                     data = args.data,
                     itemId = args.itemId
                 })
+            else
+                sendServerCommand(player, "SKO_Capsule", "spawnFailed", {})
             end
         end
     end

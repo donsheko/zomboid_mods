@@ -130,10 +130,22 @@ end
 
 function restoreVehicle(vehicleData, itemEquiped)
     local player = getPlayer()
-    local x = player:getX()
-    local y = player:getY()
-    local z = player:getZ()
+    local x = math.floor(player:getX())
+    local y = math.floor(player:getY())
+    local z = math.floor(player:getZ())
+    local sq = getCell():getGridSquare(x, y, z)
     local VehicleStatus = 0
+
+    -- Validación de ubicación
+    if z > 0 then
+        player:Say("Solo se pueden restaurar vehiculos en el suelo (Z=0).")
+        return
+    end
+
+    if not sq or sq:getRoom() or not sq:isOutside() then
+        player:Say("No hay espacio suficiente o hay un techo/habitacion bloqueando la restauracion.")
+        return
+    end
 
     -- Crear un nuevo vehículo de forma compatible con Cliente/Servidor
     local vehicle = nil
@@ -141,12 +153,17 @@ function restoreVehicle(vehicleData, itemEquiped)
         sendClientCommand(getPlayer(), "SKO_Capsule", "spawnVehicle", { name = vehicleData.name, dir = player:getDir(), status = VehicleStatus, x = x, y = y, z = z, data = vehicleData, itemId = itemEquiped:getID() })
         return -- la parte de restaurecion debe controlarse asincronamente si se hace por server
     else
-        vehicle = addVehicleDebug(vehicleData.name, player:getDir(), VehicleStatus, getCell():getGridSquare(x, y, z))
+        vehicle = addVehicleDebug(vehicleData.name, player:getDir(), VehicleStatus, sq)
         if vehicle then
             vehicle:setColorHSV(vehicleData.color.h, vehicleData.color.s, vehicleData.color.v)
+        else
+            player:Say("Fallo al crear el vehiculo en esta posicion.")
+            return
         end
     end
+
     if vehicle and vehicleData.parts then
+        -- (Resto de la restauración de partes...)
         for i = 1, vehicle:getPartCount() do
             local part = vehicle:getPartByIndex(i - 1)
             if part then
@@ -156,7 +173,6 @@ function restoreVehicle(vehicleData, itemEquiped)
                     if partData.hasItem and partData.item then
                         pcall(function() part:setInventoryItem(partData.item) end)
                     end
-                    -- verificamos si vehicleData.inventory[part:getId()].capacity esta definido
                     if vehicleData.inventory[part:getId()] then
                         pcall(function() part:setContainerCapacity(vehicleData.inventory[part:getId()].capacity) end)
                     end
@@ -232,7 +248,6 @@ function restoreVehicle(vehicleData, itemEquiped)
         if vehicleData.hasKey then
             vehicle:setKeysInIgnition(true)
         end
-        -- Restaurar el keyId original para que las llaves del jugador sigan funcionando
         if vehicleData.keyId and vehicleData.keyId > 0 then
             vehicle:setKeyId(vehicleData.keyId)
         end
@@ -241,13 +256,16 @@ function restoreVehicle(vehicleData, itemEquiped)
         end
     end
 
-    -- Regresar el nombre del itemEquiped a "Contenedor de vehiculos"
-    itemEquiped:setName("Contenedor de vehiculos")
+    -- Si llegamos aquí y hay vehículo, el proceso fue exitoso
+    if vehicle then
+        -- Regresar el nombre del itemEquiped a "Contenedor de vehiculos"
+        itemEquiped:setName("Contenedor de vehiculos")
 
-    -- Eliminar el vehículo restaurado de storedVehicles
-    local storedVehicles = getModData()
-    storedVehicles[vehicleData.id] = nil
-    setModData(storedVehicles) 
+        -- Eliminar el vehículo restaurado de storedVehicles
+        local storedVehicles = getModData()
+        storedVehicles[vehicleData.id] = nil
+        setModData(storedVehicles) 
+    end
 end
 
 function restoreItemsToContainer(container, items)
@@ -331,117 +349,121 @@ function AgregarOpcionVehiculo(player, context, worldobjects)
 end
 
 function OnServerCommand(module, command, args)
-    if module == "SKO_Capsule" and command == "doRestore" then
-        local vehicle = getVehicleById(tonumber(args.vehicleIdStr))
-        if vehicle then
-            local p = getPlayer()
-            local inv = p:getInventory()
-            local itemEquiped = inv:getItemById(tonumber(args.itemId)) or p:getSecondaryHandItem()
-            
-            if itemEquiped then
-                local vehicleData = args.data
+    if module == "SKO_Capsule" then
+        if command == "doRestore" then
+            local vehicle = getVehicleById(tonumber(args.vehicleIdStr))
+            if vehicle then
+                local p = getPlayer()
+                local inv = p:getInventory()
+                local itemEquiped = inv:getItemById(tonumber(args.itemId)) or p:getSecondaryHandItem()
+                
+                if itemEquiped then
+                    local vehicleData = args.data
 
-                -- Restaurar las partes del vehículo
-                if vehicleData.parts then
-                    for i = 1, vehicle:getPartCount() do
-                        local part = vehicle:getPartByIndex(i - 1)
-                        if part then
-                            local partData = vehicleData.parts[part:getId()]
-                            if partData then
-                                local condition = partData.condition
-                                if partData.hasItem and partData.item then
-                                    part:setInventoryItem(partData.item)
-                                end
-                                
-                                if vehicleData.inventory[part:getId()] then
-                                    part:setContainerCapacity(vehicleData.inventory[part:getId()].capacity)
-                                end
-
-                                if condition then
-                                    if part:getId() == "GasTank" then
-                                        part:setContainerCapacity(vehicleData.fuelCapacity)
-                                        part:setContainerContentAmount(vehicleData.fuel)
+                    -- Restaurar las partes del vehículo
+                    if vehicleData.parts then
+                        for i = 1, vehicle:getPartCount() do
+                            local part = vehicle:getPartByIndex(i - 1)
+                            if part then
+                                local partData = vehicleData.parts[part:getId()]
+                                if partData then
+                                    local condition = partData.condition
+                                    if partData.hasItem and partData.item then
+                                        part:setInventoryItem(partData.item)
                                     end
-                                    if part:getId() == "Battery" then
-                                        local battery = part:getInventoryItem()
-                                        if battery then
-                                            battery:setUsedDelta(vehicleData.batteryCharge)
+                                    
+                                    if vehicleData.inventory[part:getId()] then
+                                        part:setContainerCapacity(vehicleData.inventory[part:getId()].capacity)
+                                    end
+
+                                    if condition then
+                                        if part:getId() == "GasTank" then
+                                            part:setContainerCapacity(vehicleData.fuelCapacity)
+                                            part:setContainerContentAmount(vehicleData.fuel)
                                         end
-                                    end
-                                    part:setCondition(condition)
-                                    if not partData.hasItem then
+                                        if part:getId() == "Battery" then
+                                            local battery = part:getInventoryItem()
+                                            if battery then
+                                                battery:setUsedDelta(vehicleData.batteryCharge)
+                                            end
+                                        end
+                                        part:setCondition(condition)
+                                        if not partData.hasItem then
+                                            part:setInventoryItem(nil)
+                                        end
+                                    else
+                                        part:setCondition(0)
                                         part:setInventoryItem(nil)
                                     end
-                                else
-                                    part:setCondition(0)
-                                    part:setInventoryItem(nil)
                                 end
                             end
                         end
                     end
-                end
-                
-                -- Restaurar los inventarios de los contenedores
-                if vehicleData.inventory then
-                    for partId, partInventory in pairs(vehicleData.inventory) do
-                        local vPart = vehicle:getPartById(partId)
-                        if vPart and vPart:getItemContainer() then
-                            local container = vPart:getItemContainer()
-                            container:clear()
-                            restoreItemsToContainer(container, partInventory.items)
-                        end
-                    end
-                end
-
-                -- Restaurar estado de puertas
-                if vehicleData.doors then
-                    for partId, doorData in pairs(vehicleData.doors) do
-                        local part = vehicle:getPartById(partId)
-                        if part then
-                            local door = part:getDoor()
-                            if door then
-                                door:setOpen(doorData.isOpen or false)
-                                door:setLocked(doorData.isLocked or false)
+                    
+                    -- Restaurar los inventarios de los contenedores
+                    if vehicleData.inventory then
+                        for partId, partInventory in pairs(vehicleData.inventory) do
+                            local vPart = vehicle:getPartById(partId)
+                            if vPart and vPart:getItemContainer() then
+                                local container = vPart:getItemContainer()
+                                container:clear()
+                                restoreItemsToContainer(container, partInventory.items)
                             end
                         end
                     end
-                end
 
-                -- Restaurar estado de ventanas
-                if vehicleData.windows then
-                    for partId, windowData in pairs(vehicleData.windows) do
-                        local part = vehicle:getPartById(partId)
-                        if part then
-                            local window = part:getWindow()
-                            if window then
-                                window:setOpen(windowData.isOpen or false)
+                    -- Restaurar estado de puertas
+                    if vehicleData.doors then
+                        for partId, doorData in pairs(vehicleData.doors) do
+                            local part = vehicle:getPartById(partId)
+                            if part then
+                                local door = part:getDoor()
+                                if door then
+                                    door:setOpen(doorData.isOpen or false)
+                                    door:setLocked(doorData.isLocked or false)
+                                end
                             end
                         end
                     end
-                end
 
-                -- Restaurar la llave, puenteo y keyId
-                if vehicleData.hotwired then
-                    vehicle:setHotwired(true)
-                end
-                if vehicleData.hasKey then
-                    vehicle:setKeysInIgnition(true)
-                end
-                if vehicleData.keyId and vehicleData.keyId > 0 then
-                    vehicle:setKeyId(vehicleData.keyId)
-                end
-                if vehicleData.trunkLocked then
-                    vehicle:setTrunkLocked(true)
-                end
+                    -- Restaurar estado de ventanas
+                    if vehicleData.windows then
+                        for partId, windowData in pairs(vehicleData.windows) do
+                            local part = vehicle:getPartById(partId)
+                            if part then
+                                local window = part:getWindow()
+                                if window then
+                                    window:setOpen(windowData.isOpen or false)
+                                end
+                            end
+                        end
+                    end
 
-                -- Regresar nombre del itemEquiped
-                itemEquiped:setName("Contenedor de vehiculos")
+                    -- Restaurar la llave, puenteo y keyId
+                    if vehicleData.hotwired then
+                        vehicle:setHotwired(true)
+                    end
+                    if vehicleData.hasKey then
+                        vehicle:setKeysInIgnition(true)
+                    end
+                    if vehicleData.keyId and vehicleData.keyId > 0 then
+                        vehicle:setKeyId(vehicleData.keyId)
+                    end
+                    if vehicleData.trunkLocked then
+                        vehicle:setTrunkLocked(true)
+                    end
 
-                -- Eliminar datos
-                local storedVehicles = getModData()
-                storedVehicles[vehicleData.id] = nil
-                setModData(storedVehicles) 
+                    -- Regresar nombre del itemEquiped
+                    itemEquiped:setName("Contenedor de vehiculos")
+
+                    -- Eliminar datos
+                    local storedVehicles = getModData()
+                    storedVehicles[vehicleData.id] = nil
+                    setModData(storedVehicles) 
+                end
             end
+        elseif command == "spawnFailed" then
+            getPlayer():Say("Fallo al crear el vehiculo en el servidor. Revisa el espacio o techos.")
         end
     end
 end
