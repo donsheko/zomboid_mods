@@ -31,18 +31,25 @@ function SKOWaypointStoragePanel:createChildren()
     self.titleLabel.center = true
     self:addChild(self.titleLabel)
 
+    local comboWidth = 140
+    self.lblSource = ISLabel:new(10, 58, 15, "Origen de Datos:", 1, 1, 1, 1, UIFont.Small, true)
+    self:addChild(self.lblSource)
+
+    self.comboSource = ISComboBox:new(105, 55, comboWidth, 20, self, self.onSourceChange)
+    self.comboSource:initialise()
+    self.comboSource:addOption("Personaje")
+    self.comboSource:addOption("Suelo (Cercano)")
+    self:addChild(self.comboSource)
+
     local listY = 85
     local listWidth = (self.width / 2) - 15
     local listHeight = self.height - 135
 
-    -- Labels de las listas
-    self.lblInventory = ISLabel:new(10, listY - 20, 15, "Tu Inventario (Doble click para subir)", 1, 1, 1, 1, UIFont.Small, true)
-    self:addChild(self.lblInventory)
-
-    self.lblNetwork = ISLabel:new(self.width / 2 + 5, listY - 20, 15, "Red Waypoint", 1, 1, 1, 1, UIFont.Small, true)
+    -- Etiquetas de las listas (Red Waypoint alineada con Origen de Datos)
+    self.lblNetwork = ISLabel:new(self.width / 2 + 5, 58, 15, "Red Waypoint", 1, 1, 1, 1, UIFont.Small, true)
     self:addChild(self.lblNetwork)
 
-    -- Lista izquierda: Inventario del jugador
+    -- Lista izquierda: Inventario del jugador / Suelo
     self.listInventory = ISScrollingListBox:new(10, listY, listWidth, listHeight)
     self.listInventory:initialise()
     self.listInventory:instantiate()
@@ -64,9 +71,9 @@ function SKOWaypointStoragePanel:createChildren()
     self.listNetwork:setOnMouseDoubleClick(self, self.onDownloadItem)
     self:addChild(self.listNetwork)
 
-    -- Combobox para filtrar categorias de la Nube
+    -- Combobox para filtrar categorias de la Nube (Alineado con Origen de Datos)
     local comboWidth = 140
-    self.comboCategory = ISComboBox:new(self.width - 10 - comboWidth, listY - 25, comboWidth, 20, self, self.onCategoryChange)
+    self.comboCategory = ISComboBox:new(self.width - 10 - comboWidth, 55, comboWidth, 20, self, self.onCategoryChange)
     self.comboCategory.onChange = self.onCategoryChange
     self.comboCategory.target = self
     self.comboCategory:initialise()
@@ -101,82 +108,123 @@ function SKOWaypointStoragePanel:refreshLists()
     self.listInventory:clear()
     self.listNetwork:clear()
 
-    -- Llenar Inventario (items top-level y contenidos de mochilas)
+    -- Llenar Inventario o Suelo según selección
     local player = getPlayer()
-    local inv = player:getInventory()
     local displayInv = {}
 
-    local function checkAdd(itemToEval, sourceContainer, suffixStr)
-        if itemToEval:isEquipped() then return end
-        if itemToEval:getType() == "KeyRing" then return end
+    local selectedSource = self.comboSource:getSelectedText()
+    
+    if selectedSource == "Personaje" then
+        local inv = player:getInventory()
 
-        local isClothing = false
-        if itemToEval:IsClothing() then
-            local okC, res = pcall(function() return player:isEquippedClothing(itemToEval) end)
-            if okC and res then isClothing = true end
-        end
-        if isClothing then return end
+        local function checkAdd(itemToEval, sourceContainer, suffixStr)
+            if itemToEval:isEquipped() then return end
+            if itemToEval:getType() == "KeyRing" then return end
 
-        local data = {
-            realItem = itemToEval,
-            sourceContainer = sourceContainer,
-            fullType = tostring(itemToEval:getFullType()),
-            name = itemToEval:getDisplayName(),
-            condition = itemToEval:getCondition()
-        }
-        
-        local text = tostring(data.name)
-        
-        local okW, isW = pcall(function() return itemToEval:IsWeapon() end)
-        local okC, isC = pcall(function() return itemToEval:IsClothing() end)
-        if (okW and isW) or (okC and isC) then
-            pcall(function() text = text .. " (Cond: " .. tostring(itemToEval:getCondition()) .. "/" .. tostring(itemToEval:getConditionMax()) .. ")" end)
-        end
-        
-        local okD, isD = pcall(function() return itemToEval:IsDrainable() end)
-        if okD and isD then
-            pcall(function()
-                if type(itemToEval.getCurrentUsesFloat) == "function" then
-                    text = text .. " (Restante: " .. math.floor(itemToEval:getCurrentUsesFloat() * 100) .. "%)"
-                elseif type(itemToEval.getUsedDelta) == "function" then
-                    text = text .. " (Restante: " .. math.floor(itemToEval:getUsedDelta() * 100) .. "%)"
-                end
-            end)
-        end
-        
-        local okH, isH = pcall(function() return itemToEval:IsFood() end)
-        if okH and isH then
-            pcall(function() text = text .. " (Hambre: " .. math.floor(itemToEval:getHungChange() * 100) .. ")" end)
-        end
-        
-        if suffixStr and suffixStr ~= "" then
-            text = text .. " " .. suffixStr
-        end
-        
-        table.insert(displayInv, { text = text, data = data })
-    end
+            local isClothing = false
+            if itemToEval:IsClothing() then
+                local okC, res = pcall(function() return player:isEquippedClothing(itemToEval) end)
+                if okC and res then isClothing = true end
+            end
+            if isClothing then return end
 
-    local topItems = inv:getItems()
-    if topItems then
-        for i = 0, topItems:size() - 1 do
-            local item = topItems:get(i)
-            if item then
-                -- Evaluar el propio item
-                checkAdd(item, inv, "")
-                
-                -- Si es contenedor (mochila), evaluar su interior (aunque esté equipada)
-                if instanceof(item, "InventoryContainer") then
-                    local subInv = item:getInventory()
-                    if subInv then
-                        local suffix = "- [" .. tostring(item:getDisplayName()) .. "]"
-                        local subItems = subInv:getItems()
-                        if subItems then
-                            for j = 0, subItems:size() - 1 do
-                                local subItem = subItems:get(j)
-                                if subItem then
-                                    checkAdd(subItem, subInv, suffix)
+            local data = {
+                realItem = itemToEval,
+                sourceContainer = sourceContainer,
+                fullType = tostring(itemToEval:getFullType()),
+                name = itemToEval:getDisplayName(),
+                condition = itemToEval:getCondition()
+            }
+            
+            local text = tostring(data.name)
+            
+            local okW, isW = pcall(function() return itemToEval:IsWeapon() end)
+            local okC, isC = pcall(function() return itemToEval:IsClothing() end)
+            if (okW and isW) or (okC and isC) then
+                pcall(function() text = text .. " (Cond: " .. tostring(itemToEval:getCondition()) .. "/" .. tostring(itemToEval:getConditionMax()) .. ")" end)
+            end
+            
+            local okD, isD = pcall(function() return itemToEval:IsDrainable() end)
+            if okD and isD then
+                pcall(function()
+                    if type(itemToEval.getCurrentUsesFloat) == "function" then
+                        text = text .. " (Restante: " .. math.floor(itemToEval:getCurrentUsesFloat() * 100) .. "%)"
+                    elseif type(itemToEval.getUsedDelta) == "function" then
+                        text = text .. " (Restante: " .. math.floor(itemToEval:getUsedDelta() * 100) .. "%)"
+                    end
+                end)
+            end
+            
+            local okH, isH = pcall(function() return itemToEval:IsFood() end)
+            if okH and isH then
+                pcall(function() text = text .. " (Hambre: " .. math.floor(itemToEval:getHungChange() * 100) .. ")" end)
+            end
+            
+            if suffixStr and suffixStr ~= "" then
+                text = text .. " " .. suffixStr
+            end
+            
+            table.insert(displayInv, { text = text, data = data })
+        end
+
+        local topItems = inv:getItems()
+        if topItems then
+            for i = 0, topItems:size() - 1 do
+                local item = topItems:get(i)
+                if item then
+                    checkAdd(item, inv, "")
+                    if instanceof(item, "InventoryContainer") then
+                        local subInv = item:getInventory()
+                        if subInv then
+                            local suffix = "- [" .. tostring(item:getDisplayName()) .. "]"
+                            local subItems = subInv:getItems()
+                            if subItems then
+                                for j = 0, subItems:size() - 1 do
+                                    local subItem = subItems:get(j)
+                                    if subItem then
+                                        checkAdd(subItem, subInv, suffix)
+                                    end
                                 end
                             end
+                        end
+                    end
+                end
+            end
+        end
+    else
+        -- Llenar desde el suelo
+        local px = player:getX()
+        local py = player:getY()
+        local pz = player:getZ()
+        local range = 2
+
+        for x = px - range, px + range do
+            for y = py - range, py + range do
+                local square = getCell():getGridSquare(x, y, pz)
+                if square then
+                    local worldItems = square:getWorldObjects()
+                    for i = 0, worldItems:size() - 1 do
+                        local worldObj = worldItems:get(i)
+                        if worldObj and worldObj:getItem() then
+                            local item = worldObj:getItem()
+                            local data = {
+                                realItem = item,
+                                worldItem = worldObj,
+                                square = square,
+                                fullType = tostring(item:getFullType()),
+                                name = item:getDisplayName(),
+                                condition = item:getCondition()
+                            }
+                            
+                            local text = tostring(data.name) .. " [Suelo]"
+                            
+                            local okW, isW = pcall(function() return item:IsWeapon() end)
+                            local okC, isC = pcall(function() return item:IsClothing() end)
+                            if (okW and isW) or (okC and isC) then
+                                pcall(function() text = text .. " (Cond: " .. tostring(item:getCondition()) .. "/" .. tostring(item:getConditionMax()) .. ")" end)
+                            end
+                            
+                            table.insert(displayInv, { text = text, data = data })
                         end
                     end
                 end
@@ -279,6 +327,10 @@ function SKOWaypointStoragePanel:onCategoryChange(combo, arg1, arg2)
     self:refreshLists()
 end
 
+function SKOWaypointStoragePanel:onSourceChange(combo)
+    self:refreshLists()
+end
+
 function SKOWaypointStoragePanel:onUploadItem(itemData)
     local player = getPlayer()
     local realItem = itemData.realItem
@@ -313,10 +365,19 @@ function SKOWaypointStoragePanel:onUploadItem(itemData)
         serialized.hungChange = realItem:getHungChange()
     end
 
-    -- Remueve item del jugador (de su mochila o inventario) y sube a modData
-    local srcCont = itemData.sourceContainer
-    if not srcCont then srcCont = player:getInventory() end
-    srcCont:Remove(realItem)
+    -- Remueve item del jugador (de su mochila o inventario) o del suelo y sube a modData
+    if itemData.worldItem and itemData.square then
+        -- Caso: Item del suelo
+        print("SKOWaypoints: Removiendo item del suelo: " .. tostring(itemData.name))
+        itemData.square:transmitRemoveItemFromSquare(itemData.worldItem)
+        itemData.square:removeWorldObject(itemData.worldItem)
+    else
+        -- Caso: Item del inventario
+        local srcCont = itemData.sourceContainer
+        if not srcCont then srcCont = player:getInventory() end
+        srcCont:Remove(realItem)
+    end
+    
     table.insert(player:getModData().skoGlobalItems, serialized)
     
     player:playSound("PutItemInBag")
