@@ -28,7 +28,7 @@ module SKO_Shared
         }
         outputs
         {
-            item 1 SKO_Shared.MetalReciclado,
+            item 2 SKO_Shared.MetalReciclado,
         }
     }
 
@@ -45,7 +45,7 @@ module SKO_Shared
         }
         outputs
         {
-            item 2 SKO_Shared.MetalReciclado,
+            item 3 SKO_Shared.MetalReciclado,
         }
     }
 
