@@ -65,4 +65,27 @@ module SKO_Shared
             item 1 SKO_Shared.MetalReciclado,
         }
     }
+
+    craftRecipe CraftLargeBellowsSKO
+    {
+        timedAction = Making,
+        time = 200,
+        Tags = AnySurfaceCraft,
+        category = Carpentry,
+        inputs
+        {
+            item 1 tags[base:hammer] mode:keep,
+            item 1 tags[base:saw;base:smallsaw;base:crudesaw] mode:keep,
+            item 2 [Base.Plank],
+            item 2 [Base.Nails],
+            item 2 [Base.MediumHandle],
+            item 1 [Base.Tarp],
+        }
+        outputs
+        {
+            item 1 [Base.BellowsLarge],
+        }
+        skillRequired = Carpentry:1,
+        experience = Carpentry:15,
+    }
 }
