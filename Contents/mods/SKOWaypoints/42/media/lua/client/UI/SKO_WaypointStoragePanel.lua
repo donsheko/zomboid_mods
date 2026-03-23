@@ -60,6 +60,16 @@ function SKOWaypointStoragePanel:createChildren()
     self.listInventory.drawBorder = true
     self.listInventory.backgroundColor = {r=0, g=0, b=0, a=0.5}
     self.listInventory:setOnMouseDoubleClick(self, self.onUploadItem)
+    self.listInventory.onRightMouseUp = function(list, x, y)
+        local row = list:rowAt(x, y)
+        if row > 0 then
+            list.selected = row
+            local item = list.items[row].item
+            local context = ISContextMenu.get(0, getMouseX(), getMouseY())
+            context:addOption("Subir uno", self, self.onUploadItem, item)
+            context:addOption("Subir todos (mismo tipo)", self, self.onUploadItem, item, true)
+        end
+    end
     self:addChild(self.listInventory)
 
     -- Lista derecha: Nube / Transmisor
@@ -71,6 +81,16 @@ function SKOWaypointStoragePanel:createChildren()
     self.listNetwork.drawBorder = true
     self.listNetwork.backgroundColor = {r=0, g=0, b=0, a=0.5}
     self.listNetwork:setOnMouseDoubleClick(self, self.onDownloadItem)
+    self.listNetwork.onRightMouseUp = function(list, x, y)
+        local row = list:rowAt(x, y)
+        if row > 0 then
+            list.selected = row
+            local item = list.items[row].item
+            local context = ISContextMenu.get(0, getMouseX(), getMouseY())
+            context:addOption("Bajar uno", self, self.onDownloadItem, item)
+            context:addOption("Bajar todos (mismo tipo)", self, self.onDownloadItem, item, true)
+        end
+    end
     self:addChild(self.listNetwork)
 
     -- Combobox para filtrar categorias de la Nube (Alineado con Origen de Datos)
@@ -171,7 +191,7 @@ function SKOWaypointStoragePanel:refreshLists()
         if not items then return end
         for i = 0, items:size() - 1 do
             local item = items:get(i)
-            if item and not instanceof(item, "InventoryContainer") and canUploadItem(item) then
+            if item and canUploadItem(item) then
                 local data = {
                     realItem = item,
                     sourceContainer = container,
@@ -417,102 +437,121 @@ function SKOWaypointStoragePanel:onToggleDestino()
     end
 end
 
-function SKOWaypointStoragePanel:onUploadItem(itemData)
+function SKOWaypointStoragePanel:onUploadItem(itemData, transferAll)
     local player = getPlayer()
-    
-    -- Si el item viene agrupado, extraemos el primero del grupo para procesarlo
-    if itemData.groupedItemsData and #itemData.groupedItemsData > 0 then
-        itemData = table.remove(itemData.groupedItemsData)
-    end
-    
-    local realItem = itemData.realItem
-    if not realItem then return end
+    local itemsToProcess = {}
 
-    -- Obtiene la categoria nativa traducida que el juego le asigna (Ej: "Arma Larga", "Material", "Comida")
-    local catStr = realItem:getDisplayCategory()
-    if catStr then 
-        catStr = getText("IGUI_ItemCat_" .. catStr) or catStr 
-    else 
-        catStr = realItem:getCategory() or "Sin Clasificar" 
+    if (transferAll or isShiftKeyDown()) and itemData.groupedItemsData and #itemData.groupedItemsData > 0 then
+        itemsToProcess = itemData.groupedItemsData
+        itemData.groupedItemsData = {}
+    elseif itemData.groupedItemsData and #itemData.groupedItemsData > 0 then
+        table.insert(itemsToProcess, table.remove(itemData.groupedItemsData))
+    else
+        table.insert(itemsToProcess, itemData)
     end
 
-    -- Realizar serializacion profunda requerida por SKO Core
-    local serialized = SKOLib.Serializer.serializeItemData(realItem)
-    
-    -- Agregar variables necesarias para que las listas de la UI funcionen bien (visual)
-    serialized.category = catStr
-    serialized.isWeapon = realItem:IsWeapon()
-    serialized.isClothing = realItem:IsClothing()
-    serialized.isFood = realItem:IsFood()
-    serialized.isDrainable = realItem:IsDrainable()
+    if #itemsToProcess == 0 then return end
 
-    if serialized.isDrainable then
-        if type(realItem.getCurrentUsesFloat) == "function" then
-            serialized.usedDelta = realItem:getCurrentUsesFloat()
-        elseif type(realItem.getUsedDelta) == "function" then
-            serialized.usedDelta = realItem:getUsedDelta()
+    for _, data in ipairs(itemsToProcess) do
+        local realItem = data.realItem
+        if realItem then
+            -- Obtiene la categoria nativa traducida que el juego le asigna (Ej: "Arma Larga", "Material", "Comida")
+            local catStr = realItem:getDisplayCategory()
+            if catStr then 
+                catStr = getText("IGUI_ItemCat_" .. catStr) or catStr 
+            else 
+                catStr = realItem:getCategory() or "Sin Clasificar" 
+            end
+
+            -- Realizar serializacion profunda requerida por SKO Core
+            local serialized = SKOLib.Serializer.serializeItemData(realItem)
+            
+            -- Agregar variables necesarias para que las listas de la UI funcionen bien (visual)
+            serialized.category = catStr
+            serialized.isWeapon = realItem:IsWeapon()
+            serialized.isClothing = realItem:IsClothing()
+            serialized.isFood = realItem:IsFood()
+            serialized.isDrainable = realItem:IsDrainable()
+
+            if serialized.isDrainable then
+                if type(realItem.getCurrentUsesFloat) == "function" then
+                    serialized.usedDelta = realItem:getCurrentUsesFloat()
+                elseif type(realItem.getUsedDelta) == "function" then
+                    serialized.usedDelta = realItem:getUsedDelta()
+                end
+            end
+            if serialized.isFood then
+                serialized.hungChange = realItem:getHungChange()
+            end
+
+            -- Remueve item del jugador (de su mochila o inventario) o del suelo y sube a modData
+            if data.worldItem and data.square then
+                -- Caso: Item del suelo
+                print("SKOWaypoints: Removiendo item del suelo: " .. tostring(data.name))
+                data.square:transmitRemoveItemFromSquare(data.worldItem)
+                data.square:removeWorldObject(data.worldItem)
+            else
+                -- Caso: Item del inventario
+                local srcCont = data.sourceContainer
+                if not srcCont then srcCont = player:getInventory() end
+                srcCont:Remove(realItem)
+            end
+            
+            table.insert(player:getModData().skoGlobalItems, serialized)
         end
     end
-    if serialized.isFood then
-        serialized.hungChange = realItem:getHungChange()
-    end
-
-    -- Remueve item del jugador (de su mochila o inventario) o del suelo y sube a modData
-    if itemData.worldItem and itemData.square then
-        -- Caso: Item del suelo
-        print("SKOWaypoints: Removiendo item del suelo: " .. tostring(itemData.name))
-        itemData.square:transmitRemoveItemFromSquare(itemData.worldItem)
-        itemData.square:removeWorldObject(itemData.worldItem)
-    else
-        -- Caso: Item del inventario
-        local srcCont = itemData.sourceContainer
-        if not srcCont then srcCont = player:getInventory() end
-        srcCont:Remove(realItem)
-    end
-    
-    table.insert(player:getModData().skoGlobalItems, serialized)
     
     player:playSound("PutItemInBag")
     self:refreshLists()
 end
 
-function SKOWaypointStoragePanel:onDownloadItem(itemData)
+function SKOWaypointStoragePanel:onDownloadItem(itemData, transferAll)
     local player = getPlayer()
     local globalItems = player:getModData().skoGlobalItems
-    local removeIndex = itemData.networkIndex
-    if itemData.networkIndices and #itemData.networkIndices > 0 then
-        -- Tomamos el indice mas alto para evitar que table.remove de un elemento
-        -- desplace los indices que aun no hemos usado en esta ejecucion. 
-        -- Aunque el refresh es inmediato despues de un solo download, es mejor practica.
+    
+    local indices = {}
+    if (transferAll or isShiftKeyDown()) and itemData.networkIndices and #itemData.networkIndices > 0 then
+        for _, idx in ipairs(itemData.networkIndices) do table.insert(indices, idx) end
+        table.sort(indices, function(a,b) return a > b end)
+        itemData.networkIndices = {}
+    elseif itemData.networkIndices and #itemData.networkIndices > 0 then
         table.sort(itemData.networkIndices)
-        removeIndex = table.remove(itemData.networkIndices)
+        table.insert(indices, table.remove(itemData.networkIndices))
+    elseif itemData.networkIndex then
+        table.insert(indices, itemData.networkIndex)
     end
 
-    if not removeIndex or not globalItems[removeIndex] then return end
+    if #indices == 0 then return end
 
-    -- Re-crear el item recursivamente con todos sus contenidos y customDatas (SKO Core)
-    local newItem = SKOLib.Serializer.deserializeItemData(itemData)
-    if not newItem then
-        print("SKOWaypoints: No se pudo recrear el item " .. tostring(itemData.fullType))
-        return
-    end
-
-    -- Entregar al jugador (inventario o suelo) y borrar de la red
-    if self.downloadToGround then
-        local square = player:getCurrentSquare()
-        if square then
-            square:AddWorldInventoryItem(newItem, 0.5, 0.5, 0)
-            player:playSound("PutItemOnGround")
-        else
-            -- Fallback: si no hay square, entregar al inventario
-            player:getInventory():AddItem(newItem)
-            player:playSound("OpenBag")
+    for _, removeIndex in ipairs(indices) do
+        local itData = globalItems[removeIndex]
+        if itData then
+            -- Re-crear el item recursivamente con todos sus contenidos y customDatas (SKO Core)
+            local newItem = SKOLib.Serializer.deserializeItemData(itData)
+            if newItem then
+                -- Entregar al jugador (inventario o suelo) y borrar de la red
+                if self.downloadToGround then
+                    local square = player:getCurrentSquare()
+                    if square then
+                        square:AddWorldInventoryItem(newItem, 0.5, 0.5, 0)
+                    else
+                        player:getInventory():AddItem(newItem)
+                    end
+                else
+                    player:getInventory():AddItem(newItem)
+                end
+                table.remove(globalItems, removeIndex)
+            else
+                print("SKOWaypoints: No se pudo recrear el item " .. tostring(itData.fullType))
+            end
         end
+    end
+
+    if self.downloadToGround then
+        player:playSound("PutItemOnGround")
     else
-        player:getInventory():AddItem(newItem)
         player:playSound("OpenBag")
     end
-    table.remove(globalItems, removeIndex)
 
     self:refreshLists()
 end
