@@ -69,23 +69,24 @@ module SKO_Shared
     craftRecipe CraftLargeBellowsSKO
     {
         timedAction = Making,
-        time = 200,
-        Tags = AnySurfaceCraft,
+        time = 150,
         category = Carpentry,
+        Tags = AnySurfaceCraft;Carpentry,
+        xpAward = Woodwork:15,
+        SkillRequired = Woodwork:1,
         inputs
         {
-            item 1 tags[base:hammer] mode:keep,
-            item 1 tags[base:saw;base:smallsaw;base:crudesaw] mode:keep,
-            item 2 [Base.Plank],
+            item 1 tags[base:hammer] mode:keep flags[MayDegradeVeryLight],
+            item 1 tags[base:saw;base:smallsaw;base:crudesaw] mode:keep flags[MayDegradeLight;Prop1],
+            item 2 [Base.Plank] flags[Prop2],
             item 2 [Base.Nails],
-            item 2 [Base.MediumHandle],
+            item 2 [Base.Handle],
             item 1 [Base.Tarp],
         }
         outputs
         {
-            item 1 [Base.BellowsLarge],
+            item 1 Base.LargeBellows,
         }
-        skillRequired = Carpentry:1,
-        experience = Carpentry:15,
     }
+
 }
