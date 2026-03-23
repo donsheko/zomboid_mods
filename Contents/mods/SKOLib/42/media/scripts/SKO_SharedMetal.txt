@@ -13,6 +13,7 @@ module SKO_Shared
         DisplayName = Metal Reciclado,
         Icon = ScrapMetal,
         WorldStaticModel = ScrapMetal,
+        Tags = smeltableironmedium,
     }
 
     craftRecipe ReciclarBisagra

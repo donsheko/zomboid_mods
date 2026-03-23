@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r iron C:Usersser_cZomboidWorkshopzomboid_mods --include=*.txt)"
+    ]
+  }
+}
