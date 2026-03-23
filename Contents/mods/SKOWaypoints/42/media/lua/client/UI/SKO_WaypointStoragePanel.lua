@@ -281,7 +281,7 @@ function SKOWaypointStoragePanel:refreshLists()
         selectedCategory = self.comboCategory:getSelectedText()
     end
 
-    local displayNet = {}
+    local groupedNet = {}
     for index, itemData in ipairs(globalItems) do
         local cat = itemData.category
         if not cat then
@@ -308,11 +308,27 @@ function SKOWaypointStoragePanel:refreshLists()
             if itemData.hungChange then
                 text = text .. " (Hambre: " .. math.floor(itemData.hungChange * 100) .. ")"
             end
-            itemData.networkIndex = index -- Guardamos su indice para poder borrarlo
-            table.insert(displayNet, { text = text, data = itemData })
+            
+            if not groupedNet[text] then
+                groupedNet[text] = { itemData = itemData, indices = {}, count = 0, text = text }
+            end
+            table.insert(groupedNet[text].indices, index)
+            groupedNet[text].count = groupedNet[text].count + 1
         end
     end
-    table.sort(displayNet, function(a, b) return a.text < b.text end)
+
+    local displayNet = {}
+    for _, group in pairs(groupedNet) do
+        local displayText = group.text .. " (x" .. group.count .. ")"
+        -- Clonar itemData para evitar efectos secundarios en modData y agregar los indices
+        local rowData = {}
+        for k,v in pairs(group.itemData) do rowData[k] = v end
+        rowData.networkIndices = group.indices
+        
+        table.insert(displayNet, { text = displayText, data = rowData, sortText = group.text })
+    end
+    table.sort(displayNet, function(a, b) return a.sortText < b.sortText end)
+
     for _, rowInfo in ipairs(displayNet) do
         self.listNetwork:addItem(rowInfo.text, rowInfo.data)
     end
@@ -388,6 +404,13 @@ function SKOWaypointStoragePanel:onDownloadItem(itemData)
     local player = getPlayer()
     local globalItems = player:getModData().skoGlobalItems
     local removeIndex = itemData.networkIndex
+    if itemData.networkIndices and #itemData.networkIndices > 0 then
+        -- Tomamos el indice mas alto para evitar que table.remove de un elemento
+        -- desplace los indices que aun no hemos usado en esta ejecucion. 
+        -- Aunque el refresh es inmediato despues de un solo download, es mejor practica.
+        table.sort(itemData.networkIndices)
+        removeIndex = table.remove(itemData.networkIndices)
+    end
 
     if not removeIndex or not globalItems[removeIndex] then return end
 
