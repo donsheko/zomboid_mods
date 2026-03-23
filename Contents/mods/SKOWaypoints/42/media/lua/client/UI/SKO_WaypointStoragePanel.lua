@@ -232,8 +232,28 @@ function SKOWaypointStoragePanel:refreshLists()
         end
     end
 
-    table.sort(displayInv, function(a, b) return a.text < b.text end)
-    for _, rowInfo in ipairs(displayInv) do
+    -- Agrupar items idénticos en el panel de inventario / suelo
+    local groupedInv = {}
+    for _, itemEntry in ipairs(displayInv) do
+        local text = itemEntry.text
+        if not groupedInv[text] then
+            groupedInv[text] = { itemsData = {}, count = 0, text = text }
+        end
+        table.insert(groupedInv[text].itemsData, itemEntry.data)
+        groupedInv[text].count = groupedInv[text].count + 1
+    end
+
+    local finalDisplayInv = {}
+    for _, group in pairs(groupedInv) do
+        local displayText = group.text .. " (x" .. group.count .. ")"
+        -- Tomamos el primer item como representante para la UI
+        local rowData = group.itemsData[1]
+        rowData.groupedItemsData = group.itemsData
+        table.insert(finalDisplayInv, { text = displayText, data = rowData, sortText = group.text })
+    end
+
+    table.sort(finalDisplayInv, function(a, b) return a.sortText < b.sortText end)
+    for _, rowInfo in ipairs(finalDisplayInv) do
         self.listInventory:addItem(rowInfo.text, rowInfo.data)
     end
 
@@ -349,6 +369,12 @@ end
 
 function SKOWaypointStoragePanel:onUploadItem(itemData)
     local player = getPlayer()
+    
+    -- Si el item viene agrupado, extraemos el primero del grupo para procesarlo
+    if itemData.groupedItemsData and #itemData.groupedItemsData > 0 then
+        itemData = table.remove(itemData.groupedItemsData)
+    end
+    
     local realItem = itemData.realItem
     if not realItem then return end
 
