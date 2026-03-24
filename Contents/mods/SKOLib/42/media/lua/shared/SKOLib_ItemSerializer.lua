@@ -73,13 +73,22 @@ function SKOLib.Serializer.serializeItemData(item)
         end
     end
 
+    -- Guardar el worldSprite si el item es un mueble recogible de B42.
+    -- Esto permite al sistema de descarga derivar el sprite para placeMoveableInternal.
+    local worldSpriteVal = nil
+    if type(item.getWorldSprite) == "function" then
+        local wsOk, ws = pcall(function() return item:getWorldSprite() end)
+        if wsOk and ws and ws ~= "" then worldSpriteVal = ws end
+    end
+
     local serialized = {
         fullType = item:getFullType(),
         name = item:getDisplayName(),
         condition = item:getCondition(),
         customData = customData,
         modData = modDataOut,
-        inventory = {}
+        inventory = {},
+        worldSprite = worldSpriteVal,
     }
 
     -- Guardar de forma recursiva todo el inventario de las mochilas/recipientes

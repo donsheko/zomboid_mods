@@ -472,14 +472,7 @@ function SKOWaypointStoragePanel:onUploadItem(itemData, transferAll)
     for _, data in ipairs(itemsToProcess) do
         local realItem = data.realItem
         if realItem then
-            -- Verificar que el item puede recrearse antes de subirlo.
-            -- Items de muebles recogibles de B42 (ej: Base.appliances_*) usan un registro
-            -- distinto al ItemFactory y no pueden ser recreados con instanceItem.
-            local testOk, testItem = pcall(instanceItem, realItem:getFullType())
-            if not testOk or not testItem then
-                player:Say("'" .. tostring(realItem:getDisplayName()) .. "' no puede guardarse en la nube (tipo de mueble incompatible).")
-                print("[SKOWaypoints] Item incompatible omitido: " .. tostring(realItem:getFullType()))
-            else
+            do
                 -- Obtiene la categoria nativa traducida que el juego le asigna (Ej: "Arma Larga", "Material", "Comida")
                 local catStr = realItem:getDisplayCategory()
                 if catStr then
@@ -586,8 +579,39 @@ function SKOWaypointStoragePanel:onDownloadItem(itemData, transferAll)
                     table.insert(failedNames, tostring(itData.name or itData.fullType))
                 end
             else
-                table.insert(failedNames, tostring(itData.name or itData.fullType))
-                print("[SKOWaypoints] No se pudo recrear: " .. tostring(itData.fullType))
+                -- instanceItem fallo: posiblemente es un mueble recogible de B42.
+                -- Intentar spawnearlo como objeto del mundo usando ISMoveableSpriteProps.
+                -- Preferir worldSprite guardado; fallback: derivar del fullType.
+                local spriteName = itData.worldSprite or (itData.fullType and itData.fullType:match("%.(.+)$"))
+                local spawnedAsFurniture = false
+                if spriteName then
+                    local square = player:getCurrentSquare()
+                    if square then
+                        local spawnOk, spawnErr = pcall(function()
+                            -- Base.Plank como item dummy: el placeMoveableInternal solo usa _item
+                            -- en casos especiales (stoves, mannequins, radios). Para IsoThumpable
+                            -- solidos como neveras no se accede al item.
+                            local dummyItem = instanceItem("Base.Plank")
+                            local props = ISMoveableSpriteProps.new(spriteName)
+                            if not props or not props.isMoveable then
+                                error("sprite no reconocido como movible: " .. spriteName)
+                            end
+                            props:placeMoveableInternal(square, dummyItem, spriteName)
+                        end)
+                        if spawnOk then
+                            table.remove(globalItems, removeIndex)
+                            downloaded = downloaded + 1
+                            spawnedAsFurniture = true
+                            print("[SKOWaypoints] Mueble spawneado en el mundo: " .. tostring(itData.fullType))
+                        else
+                            print("[SKOWaypoints] Fallo spawn como mueble: " .. tostring(spawnErr))
+                        end
+                    end
+                end
+                if not spawnedAsFurniture then
+                    table.insert(failedNames, tostring(itData.name or itData.fullType))
+                    print("[SKOWaypoints] No se pudo recrear ni spawnear: " .. tostring(itData.fullType))
+                end
             end
         end
     end

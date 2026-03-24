@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(grep -r iron C:Usersser_cZomboidWorkshopzomboid_mods --include=*.txt)"
+      "Bash(grep -r iron C:Usersser_cZomboidWorkshopzomboid_mods --include=*.txt)",
+      "Bash(find C:/Users/ser_c/Zomboid -name *.lua -path */media/lua/*)"
     ]
   }
 }
