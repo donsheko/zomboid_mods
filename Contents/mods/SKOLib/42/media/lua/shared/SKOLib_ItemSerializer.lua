@@ -158,14 +158,19 @@ function SKOLib.Serializer.deserializeItemData(itemData)
         end
     end
 
-    -- Rellenar recursivamente los inventarios del objeto (Mochilas)
-    if itemData.inventory and #itemData.inventory > 0 and newItem:IsInventoryContainer() then
-        local container = newItem:getInventory()
-        if container then
+    -- Rellenar recursivamente los inventarios del objeto (Mochilas, neveras, etc.)
+    -- Se usa pcall en cada item interno para que un fallo puntual no cancele
+    -- la deserializacion del contenedor completo (critico para neveras con comida en B42).
+    local isContainerOk, isContainer = pcall(function() return newItem:IsInventoryContainer() end)
+    if isContainerOk and isContainer and itemData.inventory and #itemData.inventory > 0 then
+        local containerOk, container = pcall(function() return newItem:getInventory() end)
+        if containerOk and container then
             for _, innerData in ipairs(itemData.inventory) do
-                local innerItem = SKOLib.Serializer.deserializeItemData(innerData)
-                if innerItem then
-                    container:AddItem(innerItem)
+                local ok, innerItem = pcall(SKOLib.Serializer.deserializeItemData, innerData)
+                if ok and innerItem then
+                    pcall(function() container:AddItem(innerItem) end)
+                elseif not ok then
+                    print("[SKOLib] Fallo al deserializar item interno: " .. tostring(innerData and innerData.fullType) .. " | " .. tostring(innerItem))
                 end
             end
         end

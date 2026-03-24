@@ -89,6 +89,7 @@ function SKOWaypointStoragePanel:createChildren()
             local context = ISContextMenu.get(0, getMouseX(), getMouseY())
             context:addOption("Bajar uno", self, self.onDownloadItem, item)
             context:addOption("Bajar todos (mismo tipo)", self, self.onDownloadItem, item, true)
+            context:addOption("Quitar de la nube", self, self.onRemoveFromNetwork, item)
         end
     end
     self:addChild(self.listNetwork)
@@ -437,6 +438,22 @@ function SKOWaypointStoragePanel:onToggleDestino()
     end
 end
 
+function SKOWaypointStoragePanel:onRemoveFromNetwork(itemData)
+    local player = getPlayer()
+    local globalItems = player:getModData().skoGlobalItems
+    local indices = {}
+    if itemData.networkIndices then
+        for _, idx in ipairs(itemData.networkIndices) do table.insert(indices, idx) end
+    elseif itemData.networkIndex then
+        table.insert(indices, itemData.networkIndex)
+    end
+    table.sort(indices, function(a,b) return a > b end)
+    for _, idx in ipairs(indices) do
+        table.remove(globalItems, idx)
+    end
+    self:refreshLists()
+end
+
 function SKOWaypointStoragePanel:onUploadItem(itemData, transferAll)
     local player = getPlayer()
     local itemsToProcess = {}
@@ -455,52 +472,61 @@ function SKOWaypointStoragePanel:onUploadItem(itemData, transferAll)
     for _, data in ipairs(itemsToProcess) do
         local realItem = data.realItem
         if realItem then
-            -- Obtiene la categoria nativa traducida que el juego le asigna (Ej: "Arma Larga", "Material", "Comida")
-            local catStr = realItem:getDisplayCategory()
-            if catStr then 
-                catStr = getText("IGUI_ItemCat_" .. catStr) or catStr 
-            else 
-                catStr = realItem:getCategory() or "Sin Clasificar" 
-            end
-
-            -- Realizar serializacion profunda requerida por SKO Core
-            local serialized = SKOLib.Serializer.serializeItemData(realItem)
-            
-            -- Agregar variables necesarias para que las listas de la UI funcionen bien (visual)
-            serialized.category = catStr
-            serialized.isWeapon = realItem:IsWeapon()
-            serialized.isClothing = realItem:IsClothing()
-            serialized.isFood = realItem:IsFood()
-            serialized.isDrainable = realItem:IsDrainable()
-
-            if serialized.isDrainable then
-                if type(realItem.getCurrentUsesFloat) == "function" then
-                    serialized.usedDelta = realItem:getCurrentUsesFloat()
-                elseif type(realItem.getUsedDelta) == "function" then
-                    serialized.usedDelta = realItem:getUsedDelta()
-                end
-            end
-            if serialized.isFood then
-                serialized.hungChange = realItem:getHungChange()
-            end
-
-            -- Remueve item del jugador (de su mochila o inventario) o del suelo y sube a modData
-            if data.worldItem and data.square then
-                -- Caso: Item del suelo
-                print("SKOWaypoints: Removiendo item del suelo: " .. tostring(data.name))
-                data.square:transmitRemoveItemFromSquare(data.worldItem)
-                data.square:removeWorldObject(data.worldItem)
+            -- Verificar que el item puede recrearse antes de subirlo.
+            -- Items de muebles recogibles de B42 (ej: Base.appliances_*) usan un registro
+            -- distinto al ItemFactory y no pueden ser recreados con instanceItem.
+            local testOk, testItem = pcall(instanceItem, realItem:getFullType())
+            if not testOk or not testItem then
+                player:Say("'" .. tostring(realItem:getDisplayName()) .. "' no puede guardarse en la nube (tipo de mueble incompatible).")
+                print("[SKOWaypoints] Item incompatible omitido: " .. tostring(realItem:getFullType()))
             else
-                -- Caso: Item del inventario
-                local srcCont = data.sourceContainer
-                if not srcCont then srcCont = player:getInventory() end
-                srcCont:Remove(realItem)
+                -- Obtiene la categoria nativa traducida que el juego le asigna (Ej: "Arma Larga", "Material", "Comida")
+                local catStr = realItem:getDisplayCategory()
+                if catStr then
+                    catStr = getText("IGUI_ItemCat_" .. catStr) or catStr
+                else
+                    catStr = realItem:getCategory() or "Sin Clasificar"
+                end
+
+                -- Realizar serializacion profunda requerida por SKO Core
+                local serialized = SKOLib.Serializer.serializeItemData(realItem)
+
+                -- Agregar variables necesarias para que las listas de la UI funcionen bien (visual)
+                serialized.category = catStr
+                serialized.isWeapon = realItem:IsWeapon()
+                serialized.isClothing = realItem:IsClothing()
+                serialized.isFood = realItem:IsFood()
+                serialized.isDrainable = realItem:IsDrainable()
+
+                if serialized.isDrainable then
+                    if type(realItem.getCurrentUsesFloat) == "function" then
+                        serialized.usedDelta = realItem:getCurrentUsesFloat()
+                    elseif type(realItem.getUsedDelta) == "function" then
+                        serialized.usedDelta = realItem:getUsedDelta()
+                    end
+                end
+                if serialized.isFood then
+                    serialized.hungChange = realItem:getHungChange()
+                end
+
+                -- Remueve item del jugador (de su mochila o inventario) o del suelo y sube a modData
+                if data.worldItem and data.square then
+                    -- Caso: Item del suelo
+                    print("SKOWaypoints: Removiendo item del suelo: " .. tostring(data.name))
+                    data.square:transmitRemoveItemFromSquare(data.worldItem)
+                    data.square:removeWorldObject(data.worldItem)
+                else
+                    -- Caso: Item del inventario
+                    local srcCont = data.sourceContainer
+                    if not srcCont then srcCont = player:getInventory() end
+                    srcCont:Remove(realItem)
+                end
+
+                table.insert(player:getModData().skoGlobalItems, serialized)
             end
-            
-            table.insert(player:getModData().skoGlobalItems, serialized)
         end
     end
-    
+
     player:playSound("PutItemInBag")
     self:refreshLists()
 end
@@ -508,7 +534,7 @@ end
 function SKOWaypointStoragePanel:onDownloadItem(itemData, transferAll)
     local player = getPlayer()
     local globalItems = player:getModData().skoGlobalItems
-    
+
     local indices = {}
     if (transferAll or isShiftKeyDown()) and itemData.networkIndices and #itemData.networkIndices > 0 then
         for _, idx in ipairs(itemData.networkIndices) do table.insert(indices, idx) end
@@ -523,34 +549,59 @@ function SKOWaypointStoragePanel:onDownloadItem(itemData, transferAll)
 
     if #indices == 0 then return end
 
+    local downloaded = 0
+    local failedNames = {}
+
     for _, removeIndex in ipairs(indices) do
         local itData = globalItems[removeIndex]
         if itData then
-            -- Re-crear el item recursivamente con todos sus contenidos y customDatas (SKO Core)
-            local newItem = SKOLib.Serializer.deserializeItemData(itData)
+            -- Re-crear el item. Se usa pcall porque contenedores con inventario interno
+            -- (neveras, cajas, etc.) pueden lanzar error en B42 al llenar su contenido
+            -- si el container interno no esta inicializado en el momento de creacion.
+            local ok, newItem = pcall(SKOLib.Serializer.deserializeItemData, itData)
+            if not ok then
+                print("[SKOWaypoints] Error al deserializar: " .. tostring(itData.fullType) .. " | " .. tostring(newItem))
+                newItem = nil
+            end
+
             if newItem then
                 -- Entregar al jugador (inventario o suelo) y borrar de la red
-                if self.downloadToGround then
-                    local square = player:getCurrentSquare()
-                    if square then
-                        square:AddWorldInventoryItem(newItem, 0.5, 0.5, 0)
+                local placeOk, placeErr = pcall(function()
+                    if self.downloadToGround then
+                        local square = player:getCurrentSquare()
+                        if square then
+                            square:AddWorldInventoryItem(newItem, 0.5, 0.5, 0)
+                        else
+                            player:getInventory():AddItem(newItem)
+                        end
                     else
                         player:getInventory():AddItem(newItem)
                     end
+                end)
+                if placeOk then
+                    table.remove(globalItems, removeIndex)
+                    downloaded = downloaded + 1
                 else
-                    player:getInventory():AddItem(newItem)
+                    print("[SKOWaypoints] Error al colocar item: " .. tostring(itData.fullType) .. " | " .. tostring(placeErr))
+                    table.insert(failedNames, tostring(itData.name or itData.fullType))
                 end
-                table.remove(globalItems, removeIndex)
             else
-                print("SKOWaypoints: No se pudo recrear el item " .. tostring(itData.fullType))
+                table.insert(failedNames, tostring(itData.name or itData.fullType))
+                print("[SKOWaypoints] No se pudo recrear: " .. tostring(itData.fullType))
             end
         end
     end
 
-    if self.downloadToGround then
-        player:playSound("PutItemOnGround")
-    else
-        player:playSound("OpenBag")
+    if downloaded > 0 then
+        if self.downloadToGround then
+            player:playSound("PutItemOnGround")
+        else
+            player:playSound("OpenBag")
+        end
+    end
+
+    if #failedNames > 0 then
+        player:Say("No se pudo descargar: " .. table.concat(failedNames, ", ") .. " (ver consola)")
     end
 
     self:refreshLists()
