@@ -18,10 +18,23 @@ local function OnClientCommand(module, command, player, args)
             if vehicle then
                 -- Color del vehiculo via script
                 vehicle:setColorHSV(args.data.color.h, args.data.color.s, args.data.color.v)
-                
-                -- Se asume un delay corto en servidor antes de procesar sync y re-inventario
-                -- Pero dado que B42 es estricto con las partes y capacidades de network:
-                sendServerCommand(player, "SKO_Capsule", "doRestore", { 
+
+                -- Restaurar keyId, hotwired y trunkLocked aqui en el servidor (autoritativo en B42).
+                -- Hacerlo solo via doRestore en el cliente es intermitente: el spawn asigna un
+                -- keyId aleatorio nuevo y el cliente puede recibirlo despues de que el servidor
+                -- ya lo sobreescribio. Aplicarlo aqui garantiza consistencia antes del doRestore.
+                local vData = args.data
+                if vData.keyId and vData.keyId > 0 then
+                    vehicle:setKeyId(vData.keyId)
+                end
+                if vData.hotwired then
+                    vehicle:setHotwired(true)
+                end
+                if vData.trunkLocked then
+                    vehicle:setTrunkLocked(true)
+                end
+
+                sendServerCommand(player, "SKO_Capsule", "doRestore", {
                     vehicleIdStr = tostring(vehicle:getId()),
                     data = args.data,
                     itemId = args.itemId

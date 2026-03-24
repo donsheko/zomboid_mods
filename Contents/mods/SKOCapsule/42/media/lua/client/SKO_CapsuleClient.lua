@@ -43,7 +43,11 @@ function storeVehicleInContainer(vehicle, itemEquiped)
         windows = {},
     }
 
-    print("Guardando vehiculo: " .. vehicle:getScript():getFullName())
+    print("[SKOCapsule] Guardando vehiculo: " .. vehicle:getScript():getFullName() ..
+        " | keyId=" .. tostring(vehicleData.keyId) ..
+        " | color h=" .. tostring(vehicleData.color.h) ..
+        " s=" .. tostring(vehicleData.color.s) ..
+        " v=" .. tostring(vehicleData.color.v))
 
     -- Cambiar el nombre del itemEquiped a "Contenedor de vehiculos"
     itemEquiped:setName("Contenedor vehiculo:" .. vehicleData.id)
