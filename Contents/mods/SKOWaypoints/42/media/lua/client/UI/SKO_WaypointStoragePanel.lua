@@ -3,6 +3,8 @@ require "ISUI/ISScrollingListBox"
 require "ISUI/ISComboBox"
 
 SKOWaypointStoragePanel = ISPanelJoypad:derive("SKOWaypointStoragePanel")
+local autoupload_tick_counter = 0
+local autoupload_handler = nil
 
 function SKOWaypointStoragePanel:new(x, y, width, height)
     local o = ISPanelJoypad:new(x, y, width, height)
@@ -89,6 +91,15 @@ function SKOWaypointStoragePanel:createChildren()
             local context = ISContextMenu.get(0, getMouseX(), getMouseY())
             context:addOption("Bajar uno", self, self.onDownloadItem, item)
             context:addOption("Bajar todos (mismo tipo)", self, self.onDownloadItem, item, true)
+            
+            -- Opción Whitelist: Auto-subida
+            local whitelist = getPlayer():getModData().skoAutoUploadWhitelist
+            if whitelist[item.fullType] then
+                context:addOption("Quitar de Auto-subida", self, self.onToggleWhitelist, item)
+            else
+                context:addOption("Añadir a Auto-subida", self, self.onToggleWhitelist, item)
+            end
+
             context:addOption("Quitar de la nube", self, self.onRemoveFromNetwork, item)
         end
     end
@@ -104,10 +115,10 @@ function SKOWaypointStoragePanel:createChildren()
     self:addChild(self.comboCategory)
 
     -- Boton destino de descarga (toggle Inventario / Suelo)
-    local btnWid = 100
+    local btnWid = 110
     local btnHgt = 25
     local btnSpacing = 15
-    local totalBtnsWidth = btnWid * 2 + btnSpacing
+    local totalBtnsWidth = btnWid * 3 + btnSpacing * 2
     local btnsStartX = (self.width - totalBtnsWidth) / 2
 
     self.downloadToGround = false
@@ -116,8 +127,16 @@ function SKOWaypointStoragePanel:createChildren()
     self.destinoBtn.borderColor = {r=0.3, g=1, b=0.3, a=0.5}
     self:addChild(self.destinoBtn)
 
+    -- Boton Auto-upload Maestro
+    local masterAuto = getPlayer():getModData().skoAutoUploadEnabled or false
+    local autoTitle = masterAuto and "Auto-up: ON" or "Auto-up: OFF"
+    self.autoBtn = ISButton:new(btnsStartX + btnWid + btnSpacing, self.height - btnHgt - 10, btnWid, btnHgt, autoTitle, self, self.onToggleAutoMaster)
+    self.autoBtn:initialise()
+    self.autoBtn.borderColor = masterAuto and {r=0.2, g=0.8, b=0.8, a=0.7} or {r=1, g=1, b=1, a=0.2}
+    self:addChild(self.autoBtn)
+
     -- Boton cerrar
-    self.closeBtn = ISButton:new(btnsStartX + btnWid + btnSpacing, self.height - btnHgt - 10, btnWid, btnHgt, "Cerrar", self, self.close)
+    self.closeBtn = ISButton:new(btnsStartX + (btnWid + btnSpacing) * 2, self.height - btnHgt - 10, btnWid, btnHgt, "Cerrar", self, self.close)
     self.closeBtn:initialise()
     self.closeBtn.borderColor = {r=1, g=1, b=1, a=0.3}
     self:addChild(self.closeBtn)
@@ -129,6 +148,12 @@ function SKOWaypointStoragePanel:initModData()
     local modData = getPlayer():getModData()
     if not modData.skoGlobalItems then
         modData.skoGlobalItems = {}
+    end
+    if modData.skoAutoUploadEnabled == nil then
+        modData.skoAutoUploadEnabled = false
+    end
+    if not modData.skoAutoUploadWhitelist then
+        modData.skoAutoUploadWhitelist = {}
     end
 end
 
@@ -362,6 +387,8 @@ function SKOWaypointStoragePanel:refreshLists()
     end
 
     local groupedNet = {}
+    local whitelist = player:getModData().skoAutoUploadWhitelist
+    
     for index, itemData in ipairs(globalItems) do
         local cat = itemData.category
         if not cat then
@@ -379,6 +406,12 @@ function SKOWaypointStoragePanel:refreshLists()
 
         if showItem then
             local text = itemData.name
+            
+            -- Añadir indicador de Whitelist si está activo para este tipo
+            if whitelist[itemData.fullType] then
+                text = "[A] " .. text
+            end
+
             if itemData.condition and (itemData.isWeapon or itemData.isClothing) then
                 text = text .. " (Cond: " .. itemData.condition .. ")"
             end
@@ -633,12 +666,190 @@ end
 
 function SKOWaypointStoragePanel:close()
     self:removeFromUIManager()
-    SKOWaypointStoragePanel.instance = nil
+    if SKOWaypointStoragePanel.instance == self then
+        SKOWaypointStoragePanel.instance = nil
+    end
 end
+
+function SKOWaypointStoragePanel:onToggleAutoMaster()
+    local modData = getPlayer():getModData()
+    modData.skoAutoUploadEnabled = not modData.skoAutoUploadEnabled
+    
+    local isEnabled = modData.skoAutoUploadEnabled
+    self.autoBtn:setTitle(isEnabled and "Auto-up: ON" or "Auto-up: OFF")
+    self.autoBtn.borderColor = isEnabled and {r=0.2, g=0.8, b=0.8, a=0.7} or {r=1, g=1, b=1, a=0.2}
+    
+    manageAutoUploadListener()
+end
+
+function SKOWaypointStoragePanel:onToggleWhitelist(itemData)
+    local modData = getPlayer():getModData()
+    local whitelist = modData.skoAutoUploadWhitelist
+    local fType = itemData.fullType
+    
+    if whitelist[fType] then
+        whitelist[fType] = nil
+        getPlayer():Say("Auto-subida desactivada para: " .. tostring(itemData.name))
+    else
+        whitelist[fType] = true
+        getPlayer():Say("Auto-subida activada para: " .. tostring(itemData.name))
+        -- Si activamos whitelist, aseguramos que el switch maestro esté encendido si no lo estaba
+        if not modData.skoAutoUploadEnabled then
+            modData.skoAutoUploadEnabled = true
+            if SKOWaypointStoragePanel.instance then
+                SKOWaypointStoragePanel.instance.autoBtn:setTitle("Auto-up: ON")
+                SKOWaypointStoragePanel.instance.autoBtn.borderColor = {r=0.2, g=0.8, b=0.8, a=0.7}
+            end
+            manageAutoUploadListener()
+        end
+    end
+    self:refreshLists()
+end
+
+function onAutoUploadUpdate(player)
+    if player ~= getPlayer() then return end
+    
+    autoupload_tick_counter = autoupload_tick_counter + 1
+    if autoupload_tick_counter < 300 then return end
+    autoupload_tick_counter = 0
+
+    local modData = player:getModData()
+    if not modData.skoAutoUploadEnabled then 
+        manageAutoUploadListener() 
+        return 
+    end
+
+    local whitelist = modData.skoAutoUploadWhitelist
+    local px = player:getX()
+    local py = player:getY()
+    local pz = player:getZ()
+    local range = 3
+    local itemsFound = 0
+    
+    local itemsToRemove = {}
+
+    -- 1. SCAN: SUELO
+    for x = px - range, px + range do
+        for y = py - range, py + range do
+            local square = getCell():getGridSquare(x, y, pz)
+            if square then
+                local worldItems = square:getWorldObjects()
+                for i = 0, worldItems:size() - 1 do
+                    local worldObj = worldItems:get(i)
+                    if worldObj and worldObj:getItem() then
+                        local item = worldObj:getItem()
+                        local fType = item:getFullType()
+                        if whitelist[fType] then
+                            table.insert(itemsToRemove, { type = "ground", square = square, worldObj = worldObj, item = item })
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- 2. SCAN: INVENTARIO PRINCIPAL (Solo bolsillos, no mochilas)
+    local inv = player:getInventory()
+    local invItems = inv:getItems()
+    if invItems then
+        for i = 0, invItems:size() - 1 do
+            local item = invItems:get(i)
+            if item then
+                local fType = item:getFullType()
+                -- Filtro: Whitelist + No Favorito + No Equipado + No Ropa puesta + No KeyRing
+                if whitelist[fType] and not item:isFavorite() and not item:isEquipped() and item:getType() ~= "KeyRing" then
+                    local isWearing = false
+                    if item:IsClothing() then
+                        local okC, res = pcall(function() return player:isEquippedClothing(item) end)
+                        if okC and res then isWearing = true end
+                    end
+                    
+                    if not isWearing then
+                        table.insert(itemsToRemove, { type = "inventory", container = inv, item = item })
+                    end
+                end
+            end
+        end
+    end
+
+    if #itemsToRemove == 0 then return end
+
+    -- PROCESS
+    for _, data in ipairs(itemsToRemove) do
+        local item = data.item
+        local ok, serialized = pcall(SKOLib.Serializer.serializeItemData, item)
+        
+        if ok and serialized then
+            local catStr = item:getDisplayCategory()
+            if catStr then catStr = getText("IGUI_ItemCat_" .. catStr) or catStr
+            else catStr = item:getCategory() or "Sin Clasificar" end
+            
+            serialized.category = catStr
+            serialized.isWeapon = item:IsWeapon()
+            serialized.isClothing = item:IsClothing()
+            serialized.isFood = item:IsFood()
+            serialized.isDrainable = item:IsDrainable()
+
+            if serialized.isDrainable then
+                if type(item.getCurrentUsesFloat) == "function" then
+                    serialized.usedDelta = item:getCurrentUsesFloat()
+                elseif type(item.getUsedDelta) == "function" then
+                    serialized.usedDelta = item:getUsedDelta()
+                end
+            end
+            if serialized.isFood then
+                serialized.hungChange = item:getHungChange()
+            end
+
+            -- REMOVE
+            if data.type == "ground" then
+                data.square:transmitRemoveItemFromSquare(data.worldObj)
+                data.square:removeWorldObject(data.worldObj)
+            else
+                data.container:Remove(item)
+            end
+
+            -- UPLOAD
+            table.insert(modData.skoGlobalItems, serialized)
+            itemsFound = itemsFound + 1
+        end
+    end
+
+    if itemsFound > 0 then
+        player:playSound("PutItemInBag")
+        if not isClient() then
+            player:Say("Auto-subida SKO: " .. itemsFound .. " objetos capturados.")
+        end
+        if SKOWaypointStoragePanel.instance then
+            SKOWaypointStoragePanel.instance:refreshLists()
+        end
+    end
+end
+
+function manageAutoUploadListener()
+    local player = getPlayer()
+    if not player then return end
+    local isEnabled = player:getModData().skoAutoUploadEnabled
+    if isEnabled and not autoupload_handler then
+        autoupload_handler = onAutoUploadUpdate
+        Events.OnPlayerUpdate.Add(autoupload_handler)
+    elseif not isEnabled and autoupload_handler then
+        Events.OnPlayerUpdate.Remove(autoupload_handler)
+        autoupload_handler = nil
+    end
+end
+
+-- Asegurar que el listener sobreviva o se reinicie post-carga
+local function onGameStart()
+    manageAutoUploadListener()
+end
+Events.OnGameStart.Add(onGameStart)
+Events.OnCreatePlayer.Add(onGameStart) -- Soporte para reconexión en Multiplayer
 
 function openSKOWaypointStorage()
     if SKOWaypointStoragePanel.instance then
         SKOWaypointStoragePanel.instance:close()
+        return
     end
     local ui = SKOWaypointStoragePanel:new(100, 100, 750, 450)
     ui:initialise()
