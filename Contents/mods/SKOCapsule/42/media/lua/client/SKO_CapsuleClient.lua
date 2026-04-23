@@ -162,13 +162,12 @@ function SKO_applyVehicleData(vehicle, vData)
                 local partId = part:getId()
                 local pData = vData.parts[partId]
                 if pData then
-                    part:setCondition(pData.condition or 0)
-                    if pData.hasItem and pData.itemType then 
-                        -- Evitar crear item si ya tiene uno correcto
+                    if pData.hasItem and pData.itemType then
                         local existing = part:getInventoryItem()
                         if not existing or existing:getFullType() ~= pData.itemType then
                             local newItem = SKO_createItem(pData.itemType)
                             if newItem then
+                                pcall(function() newItem:setCondition(pData.condition or 0) end)
                                 if pData.itemModData then
                                     local imd = newItem:getModData()
                                     for k,v in pairs(pData.itemModData) do imd[k] = v end
@@ -179,14 +178,20 @@ function SKO_applyVehicleData(vehicle, vData)
                     else
                         part:setInventoryItem(nil)
                     end
+                    pcall(function() part:setCondition(pData.condition or 0) end)
 
                     -- Items inside
                     local container = part:getItemContainer()
                     if container then
                         container:clear()
                         local invData = vData.inventory and vData.inventory[partId]
-                        if invData and type(invData.items) == "table" then
-                            restoreItemsToContainer(container, invData.items)
+                        if invData then
+                            if invData.capacity then
+                                pcall(function() container:setCapacity(invData.capacity) end)
+                            end
+                            if type(invData.items) == "table" then
+                                restoreItemsToContainer(container, invData.items)
+                            end
                         end
                     end
                 end
@@ -200,6 +205,9 @@ function SKO_applyVehicleData(vehicle, vData)
             local p = vehicle:getPartById(pId)
             if p then
                 pcall(function() 
+                    if tData.capacity and p.setContainerCapacity then
+                        p:setContainerCapacity(tData.capacity)
+                    end
                     p:setContainerContentAmount(tData.fuel) 
                 end)
             end
