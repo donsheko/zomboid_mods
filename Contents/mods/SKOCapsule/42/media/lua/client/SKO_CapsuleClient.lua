@@ -200,7 +200,6 @@ function SKO_applyVehicleData(vehicle, vData)
             local p = vehicle:getPartById(pId)
             if p then
                 pcall(function() 
-                    p:setContainerCapacity(tData.capacity) 
                     p:setContainerContentAmount(tData.fuel) 
                 end)
             end
