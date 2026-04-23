@@ -1,49 +1,118 @@
-local function OnClientCommand(module, command, player, args)
+if not SKO_Capsule then SKO_Capsule = {} end
+
+function SKO_serverCreateItem(itemType)
+    local item = nil
+    if getInventoryItemFactory and type(getInventoryItemFactory) == "function" then
+        pcall(function() item = getInventoryItemFactory():createItem(itemType) end)
+    end
+    if item then return item end
+    if instanceItem and type(instanceItem) == "function" then
+        pcall(function() item = instanceItem(itemType) end)
+    end
+    if item then return item end
+    if InventoryItemFactory and InventoryItemFactory.CreateItem then
+        pcall(function() item = InventoryItemFactory.CreateItem(itemType) end)
+    end
+    return item
+end
+
+function SKO_ServerApplyVehicleData(vehicle, vData)
+    if not vehicle or not vData then return end
+    print("[SKOCapsule Server] Restaurando vehiculo: " .. vData.name)
+
+    local vModData = vehicle:getModData()
+    if vData.modData then
+        for k, v in pairs(vData.modData) do vModData[k] = v end
+    end
+
+    pcall(function()
+        vehicle:setColorHSV(vData.color.h, vData.color.s, vData.color.v)
+        local visual = nil
+        if vehicle.getVisual and type(vehicle.getVisual) == "function" then visual = vehicle:getVisual() 
+        elseif vehicle.getVehicleVisual and type(vehicle.getVehicleVisual) == "function" then visual = vehicle:getVehicleVisual() end
+        if visual and vData.skinIndex and visual.setSkinIndex then visual:setSkinIndex(vData.skinIndex) end
+    end)
+
+    if vData.parts then
+        for i = 1, vehicle:getPartCount() do
+            local part = vehicle:getPartByIndex(i - 1)
+            if part then
+                local partId = part:getId()
+                local pData = vData.parts[partId]
+                
+                if pData then
+                    part:setCondition(pData.condition or 0)
+                    if pData.hasItem and pData.itemType then
+                        local newItem = SKO_serverCreateItem(pData.itemType)
+                        if newItem then
+                            if pData.itemModData then
+                                local imd = newItem:getModData()
+                                for k,v in pairs(pData.itemModData) do imd[k] = v end
+                            end
+                            part:setInventoryItem(newItem)
+                        end
+                    else
+                        part:setInventoryItem(nil)
+                    end
+                else
+                    part:setInventoryItem(nil)
+                end
+
+                -- Limpieza autoritaria de maleteros (MANTENIDO: Funciona bien)
+                local container = part:getItemContainer()
+                if container then
+                    container:clear()
+                    local invData = vData.inventory and vData.inventory[partId]
+                    if invData and invData.items then
+                        for _, itemData in ipairs(invData.items) do
+                            local item = SKOLib.Serializer.deserializeItemData(itemData)
+                            if item then container:AddItem(item) end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    local gasTank = vehicle:getPartById("GasTank")
+    if gasTank and vData.fuelCapacity then
+        pcall(function() gasTank:setContainerCapacity(vData.fuelCapacity) gasTank:setContainerContentAmount(vData.fuel) end)
+    end
+    
+    local battery = vehicle:getPartById("Battery")
+    if battery and vData.batteryCharge then
+        local bItem = battery:getInventoryItem()
+        if bItem and bItem.setCurrentUsesFloat then 
+            pcall(function() bItem:setCurrentUsesFloat(vData.batteryCharge) end)
+        end
+    end
+
+    if vData.hotwired then vehicle:setHotwired(true) end
+    if vData.hasKey then vehicle:setKeysInIgnition(true) end
+    if vData.keyId and vData.keyId > 0 then vehicle:setKeyId(vData.keyId) end
+    if vData.trunkLocked then vehicle:setTrunkLocked(true) end
+
+    vehicle:transmitUpdatedFields()
+end
+
+SKO_Capsule.OnClientCommand = function(module, command, player, args)
     if module == "SKO_Capsule" then
         if command == "removeVehicle" then
             local vehicle = getVehicleById(args.vehicleId)
-            if vehicle then
-                vehicle:permanentlyRemove()
-            end
+            if vehicle then vehicle:permanentlyRemove() end
         elseif command == "spawnVehicle" then
             local sq = getCell():getGridSquare(args.x, args.y, args.z)
-            
-            -- Validación extra en servidor
-            if not sq or args.z > 0 or sq:getRoom() or not sq:isOutside() then
-                sendServerCommand(player, "SKO_Capsule", "spawnFailed", {})
-                return 
-            end
-            
-            local vehicle = addVehicleDebug(args.name, args.dir, args.status, sq)
+            local vehicle = addVehicleDebug(args.name, args.dir, 0, sq)
             if vehicle then
-                -- Color del vehiculo via script
-                vehicle:setColorHSV(args.data.color.h, args.data.color.s, args.data.color.v)
-
-                -- Restaurar keyId, hotwired y trunkLocked aqui en el servidor (autoritativo en B42).
-                -- Hacerlo solo via doRestore en el cliente es intermitente: el spawn asigna un
-                -- keyId aleatorio nuevo y el cliente puede recibirlo despues de que el servidor
-                -- ya lo sobreescribio. Aplicarlo aqui garantiza consistencia antes del doRestore.
-                local vData = args.data
-                if vData.keyId and vData.keyId > 0 then
-                    vehicle:setKeyId(vData.keyId)
-                end
-                if vData.hotwired then
-                    vehicle:setHotwired(true)
-                end
-                if vData.trunkLocked then
-                    vehicle:setTrunkLocked(true)
-                end
-
-                sendServerCommand(player, "SKO_Capsule", "doRestore", {
-                    vehicleIdStr = tostring(vehicle:getId()),
-                    data = args.data,
-                    itemId = args.itemId
+                SKO_ServerApplyVehicleData(vehicle, args.data)
+                sendServerCommand(player, "SKO_Capsule", "doRestore", { 
+                    vehicleIdStr = tostring(vehicle:getId()), 
+                    data = args.data, 
+                    itemId = args.itemId 
                 })
-            else
-                sendServerCommand(player, "SKO_Capsule", "spawnFailed", {})
             end
         end
     end
 end
 
-Events.OnClientCommand.Add(OnClientCommand)
+Events.OnClientCommand.Add(SKO_Capsule.OnClientCommand)
