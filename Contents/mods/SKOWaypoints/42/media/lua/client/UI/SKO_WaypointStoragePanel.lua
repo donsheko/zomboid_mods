@@ -57,10 +57,11 @@ function SKOWaypointStoragePanel:createChildren()
     self.listInventory = ISScrollingListBox:new(10, listY, listWidth, listHeight)
     self.listInventory:initialise()
     self.listInventory:instantiate()
-    self.listInventory.itemheight = 25
+    self.listInventory.itemheight = 25 -- Regreso al tamaño compacto original
     self.listInventory.font = UIFont.NewSmall
     self.listInventory.drawBorder = true
     self.listInventory.backgroundColor = {r=0, g=0, b=0, a=0.5}
+    self.listInventory.doDrawItem = SKOWaypointStoragePanel.doDrawItem
     self.listInventory:setOnMouseDoubleClick(self, self.onUploadItem)
     self.listInventory.onRightMouseUp = function(list, x, y)
         local row = list:rowAt(x, y)
@@ -78,10 +79,11 @@ function SKOWaypointStoragePanel:createChildren()
     self.listNetwork = ISScrollingListBox:new(self.width / 2 + 5, listY, listWidth, listHeight)
     self.listNetwork:initialise()
     self.listNetwork:instantiate()
-    self.listNetwork.itemheight = 25
+    self.listNetwork.itemheight = 25 -- Regreso al tamaño compacto original
     self.listNetwork.font = UIFont.NewSmall
     self.listNetwork.drawBorder = true
     self.listNetwork.backgroundColor = {r=0, g=0, b=0, a=0.5}
+    self.listNetwork.doDrawItem = SKOWaypointStoragePanel.doDrawItem
     self.listNetwork:setOnMouseDoubleClick(self, self.onDownloadItem)
     self.listNetwork.onRightMouseUp = function(list, x, y)
         local row = list:rowAt(x, y)
@@ -95,9 +97,9 @@ function SKOWaypointStoragePanel:createChildren()
             -- Opción Whitelist: Auto-subida
             local whitelist = getPlayer():getModData().skoAutoUploadWhitelist
             if whitelist[item.fullType] then
-                context:addOption("Quitar de Auto-subida", self, self.onToggleWhitelist, item)
+                context:addOption("Remove Autoupload", self, self.onToggleWhitelist, item)
             else
-                context:addOption("Añadir a Auto-subida", self, self.onToggleWhitelist, item)
+                context:addOption("Add Autoupload", self, self.onToggleWhitelist, item)
             end
 
             context:addOption("Quitar de la nube", self, self.onRemoveFromNetwork, item)
@@ -223,7 +225,8 @@ function SKOWaypointStoragePanel:refreshLists()
                     sourceContainer = container,
                     fullType = tostring(item:getFullType()),
                     name = item:getDisplayName(),
-                    condition = item:getCondition()
+                    condition = item:getCondition(),
+                    icon = item:getTex()
                 }
                 local text = formatItemText(item)
                 if suffixStr and suffixStr ~= "" then
@@ -306,7 +309,8 @@ function SKOWaypointStoragePanel:refreshLists()
                                 square = square,
                                 fullType = tostring(item:getFullType()),
                                 name = item:getDisplayName(),
-                                condition = item:getCondition()
+                                condition = item:getCondition(),
+                                icon = item:getTex()
                             }
                             local text = formatItemText(item) .. " [Suelo]"
                             table.insert(displayInv, { text = text, data = data })
@@ -423,7 +427,7 @@ function SKOWaypointStoragePanel:refreshLists()
             end
             
             if not groupedNet[text] then
-                groupedNet[text] = { itemData = itemData, indices = {}, count = 0, text = text }
+                groupedNet[text] = { itemData = itemData, indices = {}, count = 0, text = text, icon = getItemTex(itemData.fullType) }
             end
             table.insert(groupedNet[text].indices, index)
             groupedNet[text].count = groupedNet[text].count + 1
@@ -437,6 +441,7 @@ function SKOWaypointStoragePanel:refreshLists()
         local rowData = {}
         for k,v in pairs(group.itemData) do rowData[k] = v end
         rowData.networkIndices = group.indices
+        rowData.icon = group.icon
         
         table.insert(displayNet, { text = displayText, data = rowData, sortText = group.text })
     end
@@ -449,6 +454,36 @@ function SKOWaypointStoragePanel:refreshLists()
     -- Restaurar scrolls
     self.listInventory:setYScroll(invScroll)
     self.listNetwork:setYScroll(netScroll)
+end
+
+function SKOWaypointStoragePanel:doDrawItem(y, item, alt)
+    if not item.height then item.height = self.itemheight end
+    
+    -- Bordes sutiles entre filas
+    self:drawRectBorder(0, y, self:getWidth(), item.height, 0.1, 1, 1, 1, 0.05)
+    
+    local iconSize = 18 -- Tamaño compacto (vanilla style) para máxima nitidez
+    local iconX = 4
+    local iconY = y + (item.height - iconSize) / 2
+    local textX = iconX + iconSize + 6
+    
+    -- Dibujar Icono
+    if item.item and item.item.icon then
+        self:drawTextureScaled(item.item.icon, iconX, iconY, iconSize, iconSize, 1, 1, 1, 1)
+    end
+    
+    -- Dibujar Texto
+    local fontHgt = getTextManager():getFontFromEnum(self.font):getLineHeight()
+    local textY = y + (item.height - fontHgt) / 2
+    
+    local r,g,b = 0.9, 0.9, 0.9
+    if self.selected == item.index then
+        r,g,b = 0.4, 1.0, 0.4 -- Verde original vibrante
+    end
+    
+    self:drawText(item.text, textX, textY, r, g, b, 0.9, self.font)
+    
+    return y + item.height
 end
 
 function SKOWaypointStoragePanel:onCategoryChange(combo, arg1, arg2)
