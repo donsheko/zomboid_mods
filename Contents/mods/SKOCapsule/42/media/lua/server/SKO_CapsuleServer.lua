@@ -2,17 +2,8 @@ if not SKO_Capsule then SKO_Capsule = {} end
 
 function SKO_serverCreateItem(itemType)
     local item = nil
-    if getInventoryItemFactory and type(getInventoryItemFactory) == "function" then
-        pcall(function() item = getInventoryItemFactory():createItem(itemType) end)
-    end
-    if item then return item end
-    if instanceItem and type(instanceItem) == "function" then
-        pcall(function() item = instanceItem(itemType) end)
-    end
-    if item then return item end
-    if InventoryItemFactory and InventoryItemFactory.CreateItem then
-        pcall(function() item = InventoryItemFactory.CreateItem(itemType) end)
-    end
+    pcall(function() item = InventoryItemFactory.CreateItem(itemType) end)
+    if not item then pcall(function() item = instanceItem(itemType) end) end
     return item
 end
 
@@ -33,9 +24,16 @@ function SKO_ServerApplyVehicleData(vehicle, vData)
         if visual and vData.skinIndex and visual.setSkinIndex then visual:setSkinIndex(vData.skinIndex) end
     end)
 
-    if vData.engineQuality then vehicle:setEngineQuality(vData.engineQuality) end
-    if vData.engineLoudness then vehicle:setEngineLoudness(vData.engineLoudness) end
-    if vData.rust then vehicle:setRust(vData.rust) end
+    -- Engine B42
+    if vData.engineQuality or vData.enginePower then
+        pcall(function()
+            local q = vData.engineQuality or vehicle:getEngineQuality()
+            local l = vData.engineLoudness or vehicle:getEngineLoudness()
+            local p = vData.enginePower or vehicle:getEnginePower()
+            vehicle:setEngineFeature(q, l, p)
+        end)
+    end
+    if vData.rust then pcall(function() vehicle:setRust(vData.rust) end) end
 
     if vData.parts then
         for i = 1, vehicle:getPartCount() do
@@ -45,26 +43,30 @@ function SKO_ServerApplyVehicleData(vehicle, vData)
                 local pData = vData.parts[partId]
                 
                 if pData then
-                    if pData.serializedItem then
-                        local newItem = SKOLib.Serializer.deserializeItemData(pData.serializedItem)
-                        if newItem then part:setInventoryItem(newItem) end
+                    part:setCondition(pData.condition or 0)
+                    if pData.hasItem and pData.itemType then
+                        local existing = part:getInventoryItem()
+                        if not existing or existing:getFullType() ~= pData.itemType then
+                            local newItem = SKO_serverCreateItem(pData.itemType)
+                            if newItem then
+                                if pData.itemModData then
+                                    local imd = newItem:getModData()
+                                    for k,v in pairs(pData.itemModData) do imd[k] = v end
+                                end
+                                part:setInventoryItem(newItem)
+                            end
+                        end
                     else
                         part:setInventoryItem(nil)
                     end
-                    part:setCondition(pData.condition or 0)
-                else
-                    part:setInventoryItem(nil)
-                end
 
-                -- Limpieza autoritaria de maleteros (MANTENIDO: Funciona bien)
-                local container = part:getItemContainer()
-                if container then
-                    container:clear()
-                    local invData = vData.inventory and vData.inventory[partId]
-                    if invData and invData.items then
-                        for _, itemData in ipairs(invData.items) do
-                            local item = SKOLib.Serializer.deserializeItemData(itemData)
-                            if item then container:AddItem(item) end
+                    -- Items inside (Trunk, Seats)
+                    local container = part:getItemContainer()
+                    if container then
+                        container:clear()
+                        local invData = vData.inventory and vData.inventory[partId]
+                        if invData and type(invData.items) == "table" then
+                            restoreItemsToContainer(container, invData.items)
                         end
                     end
                 end
@@ -72,7 +74,7 @@ function SKO_ServerApplyVehicleData(vehicle, vData)
         end
     end
 
-    -- Restauracion de Tanques de Combustible (Multi-tanque)
+    -- Restoration of Containers (Fuel/Air)
     if vData.fuelTanks then
         for pId, tData in pairs(vData.fuelTanks) do
             local p = vehicle:getPartById(pId)
@@ -93,12 +95,25 @@ function SKO_ServerApplyVehicleData(vehicle, vData)
         end
     end
 
-    vehicle:setHotwired(vData.hotwired == true)
-    vehicle:setKeysInIgnition(vData.hasKey == true)
-    vehicle:setTrunkLocked(vData.trunkLocked == true)
-    if vData.keyId then vehicle:setKeyId(vData.keyId) end
+    pcall(function() vehicle:setHotwired(vData.hotwired == true) end)
+    pcall(function() vehicle:setKeysInIgnition(vData.hasKey == true) end)
+    pcall(function() vehicle:setTrunkLocked(vData.trunkLocked == true) end)
+    if vData.keyId then pcall(function() vehicle:setKeyId(vData.keyId) end) end
 
     vehicle:transmitUpdatedFields()
+end
+
+function restoreItemsToContainer(container, items)
+    if not items or type(items) ~= "table" then return end
+    for _, itemData in ipairs(items) do
+        if itemData.fullType then
+            local item = nil
+            if SKOLib and SKOLib.Serializer then
+                item = SKOLib.Serializer.deserializeItemData(itemData)
+            end
+            if item then container:AddItem(item) end
+        end
+    end
 end
 
 SKO_Capsule.OnClientCommand = function(module, command, player, args)

@@ -162,9 +162,27 @@ function SKO_CapsuleCloudUI:doDrawVehicleItem(y, item, alt)
     local title = vData.name:gsub("Base%.", "")
     self:drawText(title, 10, y + 5, 1, 1, 1, 0.9, UIFont.Small)
     
-    local fuelCap = vData.fuelCapacity or 1
-    if fuelCap <= 0 then fuelCap = 1 end
-    local fuelPct = (vData.fuel or 0) / fuelCap
+    local fuelPct = 0
+    local totalFuel = 0
+    local totalCap = 0
+    
+    -- Soporte para multi-tanque (Estructura Nueva)
+    if vData.fuelTanks then
+        for pId, tData in pairs(vData.fuelTanks) do
+            -- Solo sumamos tanques reales (evitamos aire de llantas para el % de fuel si es posible, 
+            -- aunque en B42 el contentType ayuda a distinguir)
+            totalFuel = totalFuel + (tData.fuel or 0)
+            totalCap = totalCap + (tData.capacity or 0)
+        end
+    end
+    
+    -- Fallback para estructura antigua
+    if totalCap <= 0 and vData.fuelCapacity then
+        totalFuel = vData.fuel or 0
+        totalCap = vData.fuelCapacity or 1
+    end
+    
+    if totalCap > 0 then fuelPct = totalFuel / totalCap end
     
     local batVal = vData.batteryCharge or 0
     if batVal > 1 then batVal = batVal / 100 end

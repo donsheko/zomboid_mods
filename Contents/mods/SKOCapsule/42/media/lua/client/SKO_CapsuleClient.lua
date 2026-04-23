@@ -1,71 +1,46 @@
-require "Vehicles/ISUI/ISVehicleMenu"
-require "UI/SKO_CapsuleCloudUI"
-
 if not SKO_CapsuleClient then SKO_CapsuleClient = {} end
 
-function SKO_initCapsuleData()
-    local player = getPlayer()
-    local modData = player:getModData()
-    if not modData.storedVehicles then modData.storedVehicles = {} end
-end
-
+-- Global helpers
 function SKO_getCapsuleData()
-    SKO_initCapsuleData()
-    return getPlayer():getModData().storedVehicles
+    local modData = getPlayer():getModData()
+    if not modData.skoCapsuleCloud then modData.skoCapsuleCloud = {} end
+    return modData.skoCapsuleCloud
 end
 
 function SKO_setCapsuleData(data)
-    local player = getPlayer()
-    player:getModData().storedVehicles = data
+    local modData = getPlayer():getModData()
+    modData.skoCapsuleCloud = data
 end
 
-function SKO_copyTable(t, _depth)
-    if not t or type(t) ~= 'table' then return t end
-    _depth = (_depth or 0) + 1
-    if _depth > 10 then return nil end
+function SKO_copyTable(ori)
+    if type(ori) ~= "table" then return ori end
     local res = {}
-    for k, v in pairs(t) do
-        local vt = type(v)
-        if vt == 'table' then
-            res[k] = SKO_copyTable(v, _depth)
-        elseif vt == 'string' or vt == 'number' or vt == 'boolean' then
-            res[k] = v
-        end
-    end
+    for k, v in pairs(ori) do res[k] = SKO_copyTable(v) end
     return res
 end
 
 function SKO_getVehicleVisual(vehicle)
-    if not vehicle then return nil end
-    local visual = nil
-    if vehicle.getVisual and type(vehicle.getVisual) == "function" then
-        pcall(function() visual = vehicle:getVisual() end)
-    end
-    if not visual and vehicle.getVehicleVisual and type(vehicle.getVehicleVisual) == "function" then
-        pcall(function() visual = vehicle:getVehicleVisual() end)
-    end
-    return visual
+    if vehicle.getVisual and type(vehicle.getVisual) == "function" then return vehicle:getVisual() end
+    if vehicle.getVehicleVisual and type(vehicle.getVehicleVisual) == "function" then return vehicle:getVehicleVisual() end
+    return nil
 end
 
 function SKO_createItem(itemType)
+    if not itemType then return nil end
     local item = nil
-    if getInventoryItemFactory and type(getInventoryItemFactory) == "function" then
-        pcall(function() item = getInventoryItemFactory():createItem(itemType) end)
-    end
-    if item then return item end
-    if instanceItem and type(instanceItem) == "function" then
-        pcall(function() item = instanceItem(itemType) end)
-    end
-    if item then return item end
-    if InventoryItemFactory and InventoryItemFactory.CreateItem then
+    if InventoryItemFactory then
         pcall(function() item = InventoryItemFactory.CreateItem(itemType) end)
+    end
+    if not item and instanceItem then
+        pcall(function() item = instanceItem(itemType) end)
     end
     return item
 end
 
+-- MAIN LOGIC
 function storeVehicleInContainer(vehicle, itemEquiped)
     local storedVehicles = SKO_getCapsuleData()
-    local id = vehicle:getScript():getName() .. vehicle:getID()
+    local id = vehicle:getScript():getName() .. vehicle:getID() .. "_" .. os.time()
     
     local capturedSkinIndex = 0
     local visual = SKO_getVehicleVisual(vehicle)
@@ -78,25 +53,22 @@ function storeVehicleInContainer(vehicle, itemEquiped)
         name = vehicle:getScript():getName(),
         parts = {},
         inventory = {},
-        fuel = 0,
-        fuelCapacity = 0,
+        fuelTanks = {},
         hasKey = vehicle:isKeysInIgnition(),
         hotwired = vehicle:isHotwired(),
         keyId = vehicle:getKeyId(),
         trunkLocked = vehicle:isTrunkLocked(),
         batteryCharge = 0,
-        fuelTanks = {},
         engineQuality = vehicle:getEngineQuality(),
         engineLoudness = vehicle:getEngineLoudness(),
+        enginePower = vehicle:getEnginePower(),
         rust = vehicle:getRust(),
         color = { h = vehicle:getColorHue(), s = vehicle:getColorSaturation(), v = vehicle:getColorValue() },
+        skinIndex = capturedSkinIndex,
         doors = {},
         windows = {},
-        skinIndex = capturedSkinIndex,
         modData = SKO_copyTable(vehicle:getModData())
     }
-
-    print("[SKOCapsule] Capturando vehiculo: " .. vehicleData.name)
 
     for i = 1, vehicle:getPartCount() do
         local part = vehicle:getPartByIndex(i - 1)
@@ -106,30 +78,40 @@ function storeVehicleInContainer(vehicle, itemEquiped)
             
             vehicleData.parts[partId] = {
                 condition = part:getCondition(),
-                serializedItem = invItem and SKOLib.Serializer.serializeItemData(invItem) or nil
+                hasItem = invItem ~= nil,
+                itemType = invItem and invItem:getFullType() or nil,
+                itemModData = invItem and SKO_copyTable(invItem:getModData()) or nil
             }
 
+            -- Items inside (Trunk, Seats)
             local container = part:getItemContainer()
-            if container then 
-                vehicleData.inventory[partId] = processVehicleInventory(container, partId) 
-                local cap = container:getCapacity()
+            if container then
+                local capacity = container:getCapacity()
+                local inventario = { capacity = capacity, items = {} }
+                for j = 0, container:getItems():size() - 1 do
+                    local it = container:getItems():get(j)
+                    if it then table.insert(inventario.items, SKOLib.Serializer.serializeItemData(it)) end
+                end
+                vehicleData.inventory[partId] = inventario
+            end
+            
+            -- Fluids (Fuel, Tire Air)
+            if part:isContainer() and part:getContainerContentType() then
+                local cap = part:getContainerCapacity()
                 if cap > 0 then
                     vehicleData.fuelTanks[partId] = {
-                        fuel = container:getContentAmount(),
+                        fuel = part:getContainerContentAmount(),
                         capacity = cap
                     }
                 end
             end
-            
+
+            -- Battery
             if partId == "Battery" and invItem then 
-                local batCharge = 0
-                if type(invItem.getCurrentUsesFloat) == "function" then 
-                    batCharge = invItem:getCurrentUsesFloat()
-                elseif type(invItem.getUsedDelta) == "function" then 
-                    batCharge = 1 - invItem:getUsedDelta() -- Invertir delta consumido
-                end
-                vehicleData.batteryCharge = batCharge
+                if type(invItem.getCurrentUsesFloat) == "function" then vehicleData.batteryCharge = invItem:getCurrentUsesFloat()
+                elseif type(invItem.getUsedDelta) == "function" then vehicleData.batteryCharge = 1 - invItem:getUsedDelta() end
             end
+            
             local door = part:getDoor()
             if door then vehicleData.doors[partId] = { isOpen = door:isOpen(), isLocked = door:isLocked() } end
             local window = part:getWindow()
@@ -139,8 +121,7 @@ function storeVehicleInContainer(vehicle, itemEquiped)
 
     storedVehicles[id] = vehicleData
     SKO_setCapsuleData(storedVehicles)
-    itemEquiped:setName("Contenedor de vehiculos") -- Mantener nombre genérico para la nube
-
+    
     if isClient() then
         sendClientCommand(getPlayer(), "SKO_Capsule", "removeVehicle", { vehicleId = vehicle:getId() })
     else
@@ -148,20 +129,9 @@ function storeVehicleInContainer(vehicle, itemEquiped)
     end
 end
 
-function processVehicleInventory(container, partId)
-    local capacity = container:getCapacity()
-    local inventario = { capacity = capacity, items = {} }
-    for j = 0, container:getItems():size() - 1 do
-        local item = container:getItems():get(j)
-        if item then table.insert(inventario.items, SKOLib.Serializer.serializeItemData(item)) end
-    end
-    return inventario
-end
-
 function SKO_applyVehicleData(vehicle, vData)
     if not vehicle or not vData then return end
-    print("[SKOCapsule] Restaurando datos: " .. vData.name)
-
+    
     local vModData = vehicle:getModData()
     if vData.modData then
         for k, v in pairs(vData.modData) do vModData[k] = v end
@@ -170,14 +140,19 @@ function SKO_applyVehicleData(vehicle, vData)
     pcall(function()
         vehicle:setColorHSV(vData.color.h, vData.color.s, vData.color.v)
         local visual = SKO_getVehicleVisual(vehicle)
-        if visual and vData.skinIndex and visual.setSkinIndex then
-            visual:setSkinIndex(vData.skinIndex)
-        end
+        if visual and vData.skinIndex and visual.setSkinIndex then visual:setSkinIndex(vData.skinIndex) end
     end)
 
-    if vData.engineQuality then vehicle:setEngineQuality(vData.engineQuality) end
-    if vData.engineLoudness then vehicle:setEngineLoudness(vData.engineLoudness) end
-    if vData.rust then vehicle:setRust(vData.rust) end
+    -- Engine B42
+    if vData.engineQuality or vData.enginePower then
+        pcall(function()
+            local q = vData.engineQuality or vehicle:getEngineQuality()
+            local l = vData.engineLoudness or vehicle:getEngineLoudness()
+            local p = vData.enginePower or vehicle:getEnginePower()
+            vehicle:setEngineFeature(q, l, p)
+        end)
+    end
+    if vData.rust then pcall(function() vehicle:setRust(vData.rust) end) end
 
     if vData.parts then
         for i = 1, vehicle:getPartCount() do
@@ -186,28 +161,39 @@ function SKO_applyVehicleData(vehicle, vData)
                 local partId = part:getId()
                 local pData = vData.parts[partId]
                 if pData then
-                    if pData.serializedItem then
-                        local newItem = SKOLib.Serializer.deserializeItemData(pData.serializedItem)
-                        if newItem then part:setInventoryItem(newItem) end
+                    part:setCondition(pData.condition or 0)
+                    if pData.hasItem and pData.itemType then 
+                        -- Evitar crear item si ya tiene uno correcto
+                        local existing = part:getInventoryItem()
+                        if not existing or existing:getFullType() ~= pData.itemType then
+                            local newItem = SKO_createItem(pData.itemType)
+                            if newItem then
+                                if pData.itemModData then
+                                    local imd = newItem:getModData()
+                                    for k,v in pairs(pData.itemModData) do imd[k] = v end
+                                end
+                                part:setInventoryItem(newItem)
+                            end
+                        end
                     else
                         part:setInventoryItem(nil)
                     end
-                    part:setCondition(pData.condition or 0)
-                else
-                    part:setInventoryItem(nil)
-                end
 
-                local container = part:getItemContainer()
-                if container then
-                    container:clear()
-                    local invData = vData.inventory and vData.inventory[partId]
-                    if invData and invData.items then restoreItemsToContainer(container, invData.items) end
+                    -- Items inside
+                    local container = part:getItemContainer()
+                    if container then
+                        container:clear()
+                        local invData = vData.inventory and vData.inventory[partId]
+                        if invData and type(invData.items) == "table" then
+                            restoreItemsToContainer(container, invData.items)
+                        end
+                    end
                 end
             end
         end
     end
 
-    -- Restauracion de Tanques de Combustible (Multi-tanque)
+    -- Restoration of Containers (Fuel/Air)
     if vData.fuelTanks then
         for pId, tData in pairs(vData.fuelTanks) do
             local p = vehicle:getPartById(pId)
@@ -228,10 +214,10 @@ function SKO_applyVehicleData(vehicle, vData)
         end
     end
 
-    vehicle:setHotwired(vData.hotwired == true)
-    vehicle:setKeysInIgnition(vData.hasKey == true)
-    vehicle:setTrunkLocked(vData.trunkLocked == true)
-    if vData.keyId then vehicle:setKeyId(vData.keyId) end
+    pcall(function() vehicle:setHotwired(vData.hotwired == true) end)
+    pcall(function() vehicle:setKeysInIgnition(vData.hasKey == true) end)
+    pcall(function() vehicle:setTrunkLocked(vData.trunkLocked == true) end)
+    if vData.keyId then pcall(function() vehicle:setKeyId(vData.keyId) end) end
 
     if vehicle.updatePartModels then pcall(function() vehicle:updatePartModels() end)
     elseif vehicle.updateVisuals then pcall(function() vehicle:updateVisuals() end) end
@@ -255,7 +241,6 @@ function restoreVehicle(vehicleData, itemEquiped)
     local vehicle = addVehicleDebug(vehicleData.name, player:getDir(), 0, sq)
     if vehicle then
         SKO_applyVehicleData(vehicle, vehicleData)
-        itemEquiped:setName("Contenedor de vehiculos")
         local stored = SKO_getCapsuleData()
         stored[vehicleData.id] = nil
         SKO_setCapsuleData(stored)
@@ -263,83 +248,36 @@ function restoreVehicle(vehicleData, itemEquiped)
 end
 
 function restoreItemsToContainer(container, items)
+    if not items or type(items) ~= "table" then return end
     for _, itemData in ipairs(items) do
         if itemData.fullType then
-            local item = SKOLib.Serializer.deserializeItemData(itemData)
+            local item = nil
+            if SKOLib and SKOLib.Serializer then
+                item = SKOLib.Serializer.deserializeItemData(itemData)
+            end
             if item then container:AddItem(item) end
         end
     end
 end
 
-function createRestoreButton(context, vehicleData, itemEquiped)
-    context:addOption("Restaurar: " .. vehicleData.name, nil, function() restoreVehicle(vehicleData, itemEquiped) end)
-end
-
-function AgregarOpcionVehiculo(player, context, worldobjects)
-    local jugador = getPlayer()
-    local capsule = SKO_CapsuleClient.getCapsuleFromInventory(jugador)
-    if not capsule then return end
-
-    for _,v in ipairs(worldobjects) do
-        if v and v:getSquare() and v:getSquare():getVehicleContainer() then
-            local vehicle = v:getSquare():getVehicleContainer()
-            context:addOption("Encapsular: " .. vehicle:getScript():getName(), player, function() storeVehicleInContainer(vehicle, capsule) end)
-            break
-        end
-    end
-end
-
-function OnServerCommand(module, command, args)
-    if module == "SKO_Capsule" and command == "doRestore" then
-        local vehicle = getVehicleById(tonumber(tostring(args.vehicleIdStr)))
-        if vehicle then
-            local p = getPlayer()
-            local itemEquiped = p:getInventory():getItemById(tonumber(args.itemId)) or p:getSecondaryHandItem()
-            if itemEquiped then
-                SKO_applyVehicleData(vehicle, args.data)
-                itemEquiped:setName("Contenedor de vehiculos")
-                local stored = SKO_getCapsuleData()
-                stored[args.data.id] = nil
-                SKO_setCapsuleData(stored)
-            end
-        end
-    end
-end
-
-function SKO_CapsuleClient.getCapsuleFromInventory(player)
+-- UTILS
+SKO_CapsuleClient.getCapsuleFromInventory = function(player)
     local inv = player:getInventory()
-    if not inv then return nil end
     return inv:getFirstTypeRecurse("SKOCapsule.ContenedorVehiculos")
 end
 
-function SKO_CapsuleClient.playerHasCapsule(player)
-    return SKO_CapsuleClient.getCapsuleFromInventory(player) ~= nil
-end
-
-function SKO_CapsuleClient.onKeyStartPressed(key)
-    if key == Keyboard.KEY_NUMPAD3 then
-        local ok, gui = pcall(getCore().getGameGui, getCore())
-        if ok and gui and (gui:isTypeing() or gui:isSearching()) then return end
-
-        local player = getPlayer()
-        if not player or player:isDead() then return end
-
-        if SKO_CapsuleClient.playerHasCapsule(player) then
-            SKO_CapsuleClient.openCloudUI()
-        else
-            player:setHaloNote("Necesitas una cápsula de vehículos", 255, 255, 255, 300)
-        end
-    end
-end
-
-function SKO_CapsuleClient.openCloudUI()
-    if not SKO_CapsuleCloudUI then
-        print("[SKOCapsule] Error: SKO_CapsuleCloudUI no cargado.")
-        return
-    end
+SKO_CapsuleClient.openCloudUI = function()
+    local player = getPlayer()
     
+    -- Toggle logic: Si ya existe una instancia, la cerramos
     if SKO_CapsuleCloudUI.instance then
         SKO_CapsuleCloudUI.instance:close()
+        return
+    end
+
+    local capsule = SKO_CapsuleClient.getCapsuleFromInventory(player)
+    if not capsule then
+        player:Say("Necesito tener la Capsula en mi inventario para acceder a la Red Cloud.")
         return
     end
 
@@ -348,7 +286,44 @@ function SKO_CapsuleClient.openCloudUI()
     ui:addToUIManager()
 end
 
-Events.OnKeyStartPressed.Add(SKO_CapsuleClient.onKeyStartPressed)
+-- EVENTS
+function SKO_CapsuleClient.OnFillWorldObjectContextMenu(player, context, worldobjects)
+    local jugador = getPlayer()
+    local capsule = SKO_CapsuleClient.getCapsuleFromInventory(jugador)
+    if not capsule then return end
 
-Events.OnServerCommand.Add(OnServerCommand)
-Events.OnFillWorldObjectContextMenu.Add(AgregarOpcionVehiculo)
+    local vehicle = nil
+    for _, v in ipairs(worldobjects) do
+        if v and v:getSquare() then
+            vehicle = v:getSquare():getVehicleContainer()
+            if vehicle then break end
+        end
+    end
+
+    if vehicle then
+        context:addOption("Subir a la Nube (SKO)", vehicle, function() storeVehicleInContainer(vehicle, capsule) end)
+    end
+end
+
+function SKO_CapsuleClient.OnKeyPressed(key)
+    if key == Keyboard.KEY_NUMPAD3 then
+        if getCore():isKey("Chat") then return end
+        SKO_CapsuleClient.openCloudUI()
+    end
+end
+
+function SKO_CapsuleClient.OnServerCommand(module, command, args)
+    if module == "SKO_Capsule" and command == "doRestore" then
+        local vehicle = getVehicleById(tonumber(tostring(args.vehicleIdStr)))
+        if vehicle then
+            SKO_applyVehicleData(vehicle, args.data)
+            local stored = SKO_getCapsuleData()
+            stored[args.data.id] = nil
+            SKO_setCapsuleData(stored)
+        end
+    end
+end
+
+Events.OnFillWorldObjectContextMenu.Add(SKO_CapsuleClient.OnFillWorldObjectContextMenu)
+Events.OnKeyPressed.Add(SKO_CapsuleClient.OnKeyPressed)
+Events.OnServerCommand.Add(SKO_CapsuleClient.OnServerCommand)
