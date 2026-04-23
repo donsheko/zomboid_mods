@@ -33,6 +33,10 @@ function SKO_ServerApplyVehicleData(vehicle, vData)
         if visual and vData.skinIndex and visual.setSkinIndex then visual:setSkinIndex(vData.skinIndex) end
     end)
 
+    if vData.engineQuality then vehicle:setEngineQuality(vData.engineQuality) end
+    if vData.engineLoudness then vehicle:setEngineLoudness(vData.engineLoudness) end
+    if vData.rust then vehicle:setRust(vData.rust) end
+
     if vData.parts then
         for i = 1, vehicle:getPartCount() do
             local part = vehicle:getPartByIndex(i - 1)
@@ -41,19 +45,13 @@ function SKO_ServerApplyVehicleData(vehicle, vData)
                 local pData = vData.parts[partId]
                 
                 if pData then
-                    part:setCondition(pData.condition or 0)
-                    if pData.hasItem and pData.itemType then
-                        local newItem = SKO_serverCreateItem(pData.itemType)
-                        if newItem then
-                            if pData.itemModData then
-                                local imd = newItem:getModData()
-                                for k,v in pairs(pData.itemModData) do imd[k] = v end
-                            end
-                            part:setInventoryItem(newItem)
-                        end
+                    if pData.serializedItem then
+                        local newItem = SKOLib.Serializer.deserializeItemData(pData.serializedItem)
+                        if newItem then part:setInventoryItem(newItem) end
                     else
                         part:setInventoryItem(nil)
                     end
+                    part:setCondition(pData.condition or 0)
                 else
                     part:setInventoryItem(nil)
                 end
@@ -74,23 +72,31 @@ function SKO_ServerApplyVehicleData(vehicle, vData)
         end
     end
 
-    local gasTank = vehicle:getPartById("GasTank")
-    if gasTank and vData.fuelCapacity then
-        pcall(function() gasTank:setContainerCapacity(vData.fuelCapacity) gasTank:setContainerContentAmount(vData.fuel) end)
+    -- Restauracion de Tanques de Combustible (Multi-tanque)
+    if vData.fuelTanks then
+        for pId, tData in pairs(vData.fuelTanks) do
+            local p = vehicle:getPartById(pId)
+            if p then
+                pcall(function() 
+                    p:setContainerCapacity(tData.capacity) 
+                    p:setContainerContentAmount(tData.fuel) 
+                end)
+            end
+        end
     end
     
     local battery = vehicle:getPartById("Battery")
     if battery and vData.batteryCharge then
         local bItem = battery:getInventoryItem()
-        if bItem and bItem.setCurrentUsesFloat then 
+        if bItem and type(bItem.setCurrentUsesFloat) == "function" then 
             pcall(function() bItem:setCurrentUsesFloat(vData.batteryCharge) end)
         end
     end
 
-    if vData.hotwired then vehicle:setHotwired(true) end
-    if vData.hasKey then vehicle:setKeysInIgnition(true) end
-    if vData.keyId and vData.keyId > 0 then vehicle:setKeyId(vData.keyId) end
-    if vData.trunkLocked then vehicle:setTrunkLocked(true) end
+    vehicle:setHotwired(vData.hotwired == true)
+    vehicle:setKeysInIgnition(vData.hasKey == true)
+    vehicle:setTrunkLocked(vData.trunkLocked == true)
+    if vData.keyId then vehicle:setKeyId(vData.keyId) end
 
     vehicle:transmitUpdatedFields()
 end

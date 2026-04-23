@@ -85,6 +85,10 @@ function storeVehicleInContainer(vehicle, itemEquiped)
         keyId = vehicle:getKeyId(),
         trunkLocked = vehicle:isTrunkLocked(),
         batteryCharge = 0,
+        fuelTanks = {},
+        engineQuality = vehicle:getEngineQuality(),
+        engineLoudness = vehicle:getEngineLoudness(),
+        rust = vehicle:getRust(),
         color = { h = vehicle:getColorHue(), s = vehicle:getColorSaturation(), v = vehicle:getColorValue() },
         doors = {},
         windows = {},
@@ -102,22 +106,28 @@ function storeVehicleInContainer(vehicle, itemEquiped)
             
             vehicleData.parts[partId] = {
                 condition = part:getCondition(),
-                hasItem = invItem ~= nil,
-                itemType = invItem and invItem:getFullType() or nil,
-                itemModData = invItem and SKO_copyTable(invItem:getModData()) or nil
+                serializedItem = invItem and SKOLib.Serializer.serializeItemData(invItem) or nil
             }
 
             local container = part:getItemContainer()
-            if container then vehicleData.inventory[partId] = processVehicleInventory(container, partId) end
-            
-            if partId == "GasTank" then
-                vehicleData.fuelCapacity = part:getContainerCapacity()
-                vehicleData.fuel = part:getContainerContentAmount()
+            if container then 
+                vehicleData.inventory[partId] = processVehicleInventory(container, partId) 
+                local cap = container:getCapacity()
+                if cap > 0 then
+                    vehicleData.fuelTanks[partId] = {
+                        fuel = container:getContentAmount(),
+                        capacity = cap
+                    }
+                end
             end
+            
             if partId == "Battery" and invItem then 
                 local batCharge = 0
-                if invItem.getUsedDelta then batCharge = invItem:getUsedDelta()
-                elseif invItem.getCurrentUsesFloat then batCharge = invItem:getCurrentUsesFloat() end
+                if type(invItem.getCurrentUsesFloat) == "function" then 
+                    batCharge = invItem:getCurrentUsesFloat()
+                elseif type(invItem.getUsedDelta) == "function" then 
+                    batCharge = 1 - invItem:getUsedDelta() -- Invertir delta consumido
+                end
                 vehicleData.batteryCharge = batCharge
             end
             local door = part:getDoor()
@@ -165,6 +175,10 @@ function SKO_applyVehicleData(vehicle, vData)
         end
     end)
 
+    if vData.engineQuality then vehicle:setEngineQuality(vData.engineQuality) end
+    if vData.engineLoudness then vehicle:setEngineLoudness(vData.engineLoudness) end
+    if vData.rust then vehicle:setRust(vData.rust) end
+
     if vData.parts then
         for i = 1, vehicle:getPartCount() do
             local part = vehicle:getPartByIndex(i - 1)
@@ -172,19 +186,13 @@ function SKO_applyVehicleData(vehicle, vData)
                 local partId = part:getId()
                 local pData = vData.parts[partId]
                 if pData then
-                    part:setCondition(pData.condition or 0)
-                    if pData.hasItem and pData.itemType then 
-                        local newItem = SKO_createItem(pData.itemType)
-                        if newItem then
-                            if pData.itemModData then
-                                local imd = newItem:getModData()
-                                for k,v in pairs(pData.itemModData) do imd[k] = v end
-                            end
-                            part:setInventoryItem(newItem)
-                        end
+                    if pData.serializedItem then
+                        local newItem = SKOLib.Serializer.deserializeItemData(pData.serializedItem)
+                        if newItem then part:setInventoryItem(newItem) end
                     else
                         part:setInventoryItem(nil)
                     end
+                    part:setCondition(pData.condition or 0)
                 else
                     part:setInventoryItem(nil)
                 end
@@ -199,23 +207,31 @@ function SKO_applyVehicleData(vehicle, vData)
         end
     end
 
-    local gasTank = vehicle:getPartById("GasTank")
-    if gasTank and vData.fuelCapacity then
-        pcall(function() gasTank:setContainerCapacity(vData.fuelCapacity) gasTank:setContainerContentAmount(vData.fuel) end)
+    -- Restauracion de Tanques de Combustible (Multi-tanque)
+    if vData.fuelTanks then
+        for pId, tData in pairs(vData.fuelTanks) do
+            local p = vehicle:getPartById(pId)
+            if p then
+                pcall(function() 
+                    p:setContainerCapacity(tData.capacity) 
+                    p:setContainerContentAmount(tData.fuel) 
+                end)
+            end
+        end
     end
     
     local battery = vehicle:getPartById("Battery")
     if battery and vData.batteryCharge then
         local bItem = battery:getInventoryItem()
-        if bItem and bItem.setCurrentUsesFloat then 
+        if bItem and type(bItem.setCurrentUsesFloat) == "function" then 
             pcall(function() bItem:setCurrentUsesFloat(vData.batteryCharge) end)
         end
     end
 
-    if vData.hotwired then vehicle:setHotwired(true) end
-    if vData.hasKey then vehicle:setKeysInIgnition(true) end
-    if vData.keyId and vData.keyId > 0 then vehicle:setKeyId(vData.keyId) end
-    if vData.trunkLocked then vehicle:setTrunkLocked(true) end
+    vehicle:setHotwired(vData.hotwired == true)
+    vehicle:setKeysInIgnition(vData.hasKey == true)
+    vehicle:setTrunkLocked(vData.trunkLocked == true)
+    if vData.keyId then vehicle:setKeyId(vData.keyId) end
 
     if vehicle.updatePartModels then pcall(function() vehicle:updatePartModels() end)
     elseif vehicle.updateVisuals then pcall(function() vehicle:updateVisuals() end) end
