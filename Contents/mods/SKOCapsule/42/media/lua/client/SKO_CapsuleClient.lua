@@ -101,7 +101,8 @@ function storeVehicleInContainer(vehicle, itemEquiped)
                 if cap > 0 then
                     vehicleData.fuelTanks[partId] = {
                         fuel = part:getContainerContentAmount(),
-                        capacity = cap
+                        capacity = cap,
+                        type = part:getContainerContentType()
                     }
                 end
             end

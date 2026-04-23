@@ -169,10 +169,13 @@ function SKO_CapsuleCloudUI:doDrawVehicleItem(y, item, alt)
     -- Soporte para multi-tanque (Estructura Nueva)
     if vData.fuelTanks then
         for pId, tData in pairs(vData.fuelTanks) do
-            -- Solo sumamos tanques reales (evitamos aire de llantas para el % de fuel si es posible, 
-            -- aunque en B42 el contentType ayuda a distinguir)
-            totalFuel = totalFuel + (tData.fuel or 0)
-            totalCap = totalCap + (tData.capacity or 0)
+            -- Solo sumamos lo que es realmente combustible (Gasoline)
+            -- Si no tiene tipo (vehiculos guardados antes del fix), sumamos todo lo que no sea llanta
+            local isFuel = (tData.type == "Gasoline") or (not tData.type and not pId:find("Tire"))
+            if isFuel then
+                totalFuel = totalFuel + (tData.fuel or 0)
+                totalCap = totalCap + (tData.capacity or 0)
+            end
         end
     end
     
@@ -191,7 +194,8 @@ function SKO_CapsuleCloudUI:doDrawVehicleItem(y, item, alt)
     local fColor = {r=0, g=1, b=0}
     if fuelPct < 0.2 then fColor = {r=1, g=0.2, b=0.2} end
     
-    self:drawText("Fuel: " .. math.floor(fuelPct * 100) .. "%", 10, y + 22, fColor.r, fColor.g, fColor.b, 0.7, UIFont.NewSmall)
+    local fuelText = string.format("Fuel: %.1f / %d L", totalFuel, totalCap)
+    self:drawText(fuelText, 10, y + 22, fColor.r, fColor.g, fColor.b, 0.7, UIFont.NewSmall)
     self:drawText("Bat: " .. math.floor(batVal * 100) .. "%", 120, y + 22, 0.4, 0.8, 1, 0.7, UIFont.NewSmall)
     
     return y + item.height
