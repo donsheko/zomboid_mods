@@ -1,17 +1,20 @@
 require "Vehicles/ISUI/ISVehicleMenu"
+require "UI/SKO_CapsuleCloudUI"
 
-function initModData()
+if not SKO_CapsuleClient then SKO_CapsuleClient = {} end
+
+function SKO_initCapsuleData()
     local player = getPlayer()
     local modData = player:getModData()
     if not modData.storedVehicles then modData.storedVehicles = {} end
 end
 
-function getModData()
-    initModData()
+function SKO_getCapsuleData()
+    SKO_initCapsuleData()
     return getPlayer():getModData().storedVehicles
 end
 
-function setModData(data)
+function SKO_setCapsuleData(data)
     local player = getPlayer()
     player:getModData().storedVehicles = data
 end
@@ -61,7 +64,7 @@ function SKO_createItem(itemType)
 end
 
 function storeVehicleInContainer(vehicle, itemEquiped)
-    local storedVehicles = getModData()
+    local storedVehicles = SKO_getCapsuleData()
     local id = vehicle:getScript():getName() .. vehicle:getID()
     
     local capturedSkinIndex = 0
@@ -111,7 +114,12 @@ function storeVehicleInContainer(vehicle, itemEquiped)
                 vehicleData.fuelCapacity = part:getContainerCapacity()
                 vehicleData.fuel = part:getContainerContentAmount()
             end
-            if partId == "Battery" and invItem then vehicleData.batteryCharge = invItem:getCurrentUsesFloat() end
+            if partId == "Battery" and invItem then 
+                local batCharge = 0
+                if invItem.getUsedDelta then batCharge = invItem:getUsedDelta()
+                elseif invItem.getCurrentUsesFloat then batCharge = invItem:getCurrentUsesFloat() end
+                vehicleData.batteryCharge = batCharge
+            end
             local door = part:getDoor()
             if door then vehicleData.doors[partId] = { isOpen = door:isOpen(), isLocked = door:isLocked() } end
             local window = part:getWindow()
@@ -120,8 +128,8 @@ function storeVehicleInContainer(vehicle, itemEquiped)
     end
 
     storedVehicles[id] = vehicleData
-    setModData(storedVehicles)
-    itemEquiped:setName("Contenedor vehiculo:" .. vehicleData.id)
+    SKO_setCapsuleData(storedVehicles)
+    itemEquiped:setName("Contenedor de vehiculos") -- Mantener nombre genérico para la nube
 
     if isClient() then
         sendClientCommand(getPlayer(), "SKO_Capsule", "removeVehicle", { vehicleId = vehicle:getId() })
@@ -214,6 +222,7 @@ function SKO_applyVehicleData(vehicle, vData)
 end
 
 function restoreVehicle(vehicleData, itemEquiped)
+    if not vehicleData then return end
     local player = getPlayer()
     local x, y, z = math.floor(player:getX()), math.floor(player:getY()), math.floor(player:getZ())
     local sq = getCell():getGridSquare(x, y, z)
@@ -231,9 +240,9 @@ function restoreVehicle(vehicleData, itemEquiped)
     if vehicle then
         SKO_applyVehicleData(vehicle, vehicleData)
         itemEquiped:setName("Contenedor de vehiculos")
-        local stored = getModData()
+        local stored = SKO_getCapsuleData()
         stored[vehicleData.id] = nil
-        setModData(stored)
+        SKO_setCapsuleData(stored)
     end
 end
 
@@ -252,20 +261,14 @@ end
 
 function AgregarOpcionVehiculo(player, context, worldobjects)
     local jugador = getPlayer()
-    local itemEquiped = jugador:getSecondaryHandItem() 
-    if not itemEquiped then return end
-    local itemName = itemEquiped:getDisplayName()
-    if itemName:find("Contenedor vehiculo:") then
-        local vehicleId = string.split(itemName, ":")[2]
-        local vehicleData = getModData()[vehicleId]
-        if vehicleData then createRestoreButton(context, vehicleData, itemEquiped) end
-    elseif itemName == "Contenedor de vehiculos" then
-        for _,v in ipairs(worldobjects) do
-            if v and v:getSquare() and v:getSquare():getVehicleContainer() then
-                local vehicle = v:getSquare():getVehicleContainer()
-                context:addOption("Encapsular: " .. vehicle:getScript():getName(), player, function() storeVehicleInContainer(vehicle, itemEquiped) end)
-                break
-            end
+    local capsule = SKO_CapsuleClient.getCapsuleFromInventory(jugador)
+    if not capsule then return end
+
+    for _,v in ipairs(worldobjects) do
+        if v and v:getSquare() and v:getSquare():getVehicleContainer() then
+            local vehicle = v:getSquare():getVehicleContainer()
+            context:addOption("Encapsular: " .. vehicle:getScript():getName(), player, function() storeVehicleInContainer(vehicle, capsule) end)
+            break
         end
     end
 end
@@ -279,13 +282,57 @@ function OnServerCommand(module, command, args)
             if itemEquiped then
                 SKO_applyVehicleData(vehicle, args.data)
                 itemEquiped:setName("Contenedor de vehiculos")
-                local stored = getModData()
+                local stored = SKO_getCapsuleData()
                 stored[args.data.id] = nil
-                setModData(stored)
+                SKO_setCapsuleData(stored)
             end
         end
     end
 end
+
+function SKO_CapsuleClient.getCapsuleFromInventory(player)
+    local inv = player:getInventory()
+    if not inv then return nil end
+    return inv:getFirstTypeRecurse("SKOCapsule.ContenedorVehiculos")
+end
+
+function SKO_CapsuleClient.playerHasCapsule(player)
+    return SKO_CapsuleClient.getCapsuleFromInventory(player) ~= nil
+end
+
+function SKO_CapsuleClient.onKeyStartPressed(key)
+    if key == Keyboard.KEY_NUMPAD3 then
+        local ok, gui = pcall(getCore().getGameGui, getCore())
+        if ok and gui and (gui:isTypeing() or gui:isSearching()) then return end
+
+        local player = getPlayer()
+        if not player or player:isDead() then return end
+
+        if SKO_CapsuleClient.playerHasCapsule(player) then
+            SKO_CapsuleClient.openCloudUI()
+        else
+            player:setHaloNote("Necesitas una cápsula de vehículos", 255, 255, 255, 300)
+        end
+    end
+end
+
+function SKO_CapsuleClient.openCloudUI()
+    if not SKO_CapsuleCloudUI then
+        print("[SKOCapsule] Error: SKO_CapsuleCloudUI no cargado.")
+        return
+    end
+    
+    if SKO_CapsuleCloudUI.instance then
+        SKO_CapsuleCloudUI.instance:close()
+        return
+    end
+
+    local ui = SKO_CapsuleCloudUI:new(200, 200, 800, 500)
+    ui:initialise()
+    ui:addToUIManager()
+end
+
+Events.OnKeyStartPressed.Add(SKO_CapsuleClient.onKeyStartPressed)
 
 Events.OnServerCommand.Add(OnServerCommand)
 Events.OnFillWorldObjectContextMenu.Add(AgregarOpcionVehiculo)
