@@ -315,7 +315,9 @@ end
 
 function SKO_CapsuleClient.OnKeyPressed(key)
     if key == Keyboard.KEY_NUMPAD3 then
-        if getCore():isKey("Chat") then return end
+        local ok, gui = pcall(getCore().getGameGui, getCore())
+        if ok and gui and (gui:isTypeing() or gui:isSearching()) then return end
+        
         SKO_CapsuleClient.openCloudUI()
     end
 end
