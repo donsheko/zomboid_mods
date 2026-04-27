@@ -42,11 +42,16 @@ function SKOLib.Serializer.serializeItemData(item)
     -- Fluidos (pz-serialization-fluid - B42)
     if item.getFluidContainer and item:getFluidContainer() then
         local fc = item:getFluidContainer()
+        local fluidTypeStr = ""
+        if not fc:isEmpty() and fc:getPrimaryFluid() then
+            fluidTypeStr = fc:getPrimaryFluid():getFluidTypeString()
+        end
         data.fluid = {
             amount = fc:getAmount(),
-            type = fc:getContainerType(),
+            type = fluidTypeStr,
             tainted = fc:isTainted()
         }
+        print("[SKOLib-Fluid] Serialized: " .. tostring(data.fluid.amount) .. " | Type: " .. tostring(data.fluid.type))
     end
 
     -- Ropa (pz-serialization-clothing)
@@ -183,11 +188,51 @@ function SKOLib.Serializer.deserializeItemData(itemData)
     -- Fluidos (B42)
     if itemData.fluid and newItem:getFluidContainer() then
         local fc = newItem:getFluidContainer()
-        fc:empty()
-        if itemData.fluid.amount > 0 then
-            fc:addFluid(itemData.fluid.type, itemData.fluid.amount)
-            if itemData.fluid.tainted then fc:setTainted(true) end
+        print("[SKOLib-Fluid] Deserializing... Target Amount: " .. tostring(itemData.fluid.amount) .. " | Target Type: " .. tostring(itemData.fluid.type))
+        
+        -- Verificar si el item ya trae el mismo fluido por defecto (ej: PetrolCan ya trae Gasoline)
+        local currentFluidType = ""
+        if not fc:isEmpty() and fc:getPrimaryFluid() then
+            currentFluidType = fc:getPrimaryFluid():getFluidTypeString()
         end
+        print("[SKOLib-Fluid] Current Default Fluid: " .. tostring(currentFluidType))
+
+        if currentFluidType == itemData.fluid.type then
+            -- Mismo fluido: simplemente ajustamos la cantidad
+            local ok, err = pcall(function() fc:adjustAmount(itemData.fluid.amount) end)
+            print("[SKOLib-Fluid] adjustAmount result: " .. tostring(ok) .. " | Err: " .. tostring(err))
+        else
+            -- Distinto fluido o vacio: Forzar vaciado usando múltiples métodos por seguridad
+            pcall(function() fc:Empty() end)
+            local ok, err = pcall(function() fc:adjustAmount(0.0) end)
+            print("[SKOLib-Fluid] clear/adjust to 0 result: " .. tostring(ok) .. " | Err: " .. tostring(err))
+            
+            if itemData.fluid.amount > 0 and itemData.fluid.type and itemData.fluid.type ~= "" then
+                local fluidObj = nil
+                if Fluid and Fluid.getAllFluids then
+                    local allFluids = Fluid.getAllFluids()
+                    if allFluids then
+                        for i=0, allFluids:size()-1 do
+                            local f = allFluids:get(i)
+                            if f:getFluidTypeString() == itemData.fluid.type then
+                                fluidObj = f
+                                break
+                            end
+                        end
+                    end
+                end
+                if fluidObj then
+                    local ok2, err2 = pcall(function() fc:addFluid(fluidObj, itemData.fluid.amount) end)
+                    print("[SKOLib-Fluid] addFluid result: " .. tostring(ok2) .. " | Err: " .. tostring(err2))
+                end
+            end
+        end
+
+        if itemData.fluid.tainted then pcall(function() fc:setTainted(true) end) end
+        
+        -- SINCRONIZAR EL ITEM: Sin esto, Zomboid ignora el cambio de cantidad
+        local syncOk, syncErr = pcall(function() newItem:syncItemFields() end)
+        print("[SKOLib-Fluid] syncItemFields result: " .. tostring(syncOk) .. " | Err: " .. tostring(syncErr))
     end
 
     -- Ropa
