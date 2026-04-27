@@ -15,6 +15,7 @@ function SKOLib.Serializer.serializeItemData(item)
     
     -- 1. Atributos Base (pz-serialization-base)
     data.fullType = item:getFullType()
+    data.name = item:getDisplayName() -- Requerido por SKOWaypoints/SKOCloud
     data.condition = item:getCondition()
     data.favorite = item:isFavorite()
     data.customName = item:getName() ~= item:getScriptItem():getDisplayName() and item:getName() or nil
@@ -39,7 +40,7 @@ function SKOLib.Serializer.serializeItemData(item)
     -- 3. Especializaciones por Tipo
     
     -- Fluidos (pz-serialization-fluid - B42)
-    if item:getFluidContainer() then
+    if item.getFluidContainer and item:getFluidContainer() then
         local fc = item:getFluidContainer()
         data.fluid = {
             amount = fc:getAmount(),
@@ -73,14 +74,17 @@ function SKOLib.Serializer.serializeItemData(item)
     -- Armas (pz-serialization-weapon)
     if instanceof(item, "HandWeapon") then
         data.weapon = {
-            ammo = item:getCurrentAmmoCount(),
-            jammed = item:isJammed(),
-            chambered = item:isRoundChambered(),
-            spentRound = item:isSpentRoundChambered(),
-            spentCount = item:getSpentRoundCount(),
-            fireMode = item:getFireMode(),
             parts = {}
         }
+        -- Atributos de armas de fuego (Ranged)
+        if item:isRanged() then
+            data.weapon.ammo = item:getCurrentAmmoCount()
+            data.weapon.jammed = item:isJammed()
+            data.weapon.chambered = item:isRoundChambered()
+            data.weapon.spentRound = item:isSpentRoundChambered()
+            data.weapon.spentCount = item:getSpentRoundCount()
+            data.weapon.fireMode = item:getFireMode()
+        end
         local partSlots = {"Scope", "Clip", "Sling", "Stock", "Canon", "RecoilPad"}
         for _, slot in ipairs(partSlots) do
             local part = item:getWeaponPart(slot)
@@ -98,16 +102,19 @@ function SKOLib.Serializer.serializeItemData(item)
             burnt = item:isBurnt(),
             frozenTime = item:getFrozenTime(),
             poison = item:getPoisonPower(),
-            hung = item:getHungChange(),
-            calories = item:getCalories(),
-            carbs = item:getCarbohydrates(),
-            lipids = item:getLipids(),
-            proteins = item:getProteins()
+            hung = item:getHungChange()
         }
+        -- Nutrientes (pueden no existir en todos los items 'Food')
+        pcall(function()
+            data.food.calories = item:getCalories()
+            data.food.carbs = item:getCarbohydrates()
+            data.food.lipids = item:getLipids()
+            data.food.proteins = item:getProteins()
+        end)
     end
 
     -- Literatura y Medios (pz-serialization-literature)
-    if item:getNumberOfPages() > 0 then
+    if item.getNumberOfPages and item:getNumberOfPages() > 0 then
         data.literature = { pages = item:getAlreadyReadPages() }
     end
     if item.getMediaData and item:getMediaData() then
@@ -115,10 +122,10 @@ function SKOLib.Serializer.serializeItemData(item)
     end
 
     -- Extras: Llaves y Dispositivos (pz-serialization-extras)
-    if instanceof(item, "Key") then
+    if item.getKeyId and instanceof(item, "Key") then
         data.keyId = item:getKeyId()
     end
-    if item:getDeviceData() then
+    if item.getDeviceData and item:getDeviceData() then
         local dd = item:getDeviceData()
         data.device = {
             channel = dd:getChannel(),

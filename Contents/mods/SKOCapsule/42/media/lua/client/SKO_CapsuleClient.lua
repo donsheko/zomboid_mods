@@ -79,8 +79,7 @@ function storeVehicleInContainer(vehicle, itemEquiped)
             vehicleData.parts[partId] = {
                 condition = part:getCondition(),
                 hasItem = invItem ~= nil,
-                itemType = invItem and invItem:getFullType() or nil,
-                itemModData = invItem and SKO_copyTable(invItem:getModData()) or nil
+                itemData = invItem and SKOLib.Serializer.serializeItemData(invItem) or nil
             }
 
             -- Items inside (Trunk, Seats)
@@ -164,14 +163,9 @@ function SKO_applyVehicleData(vehicle, vData)
                 if pData then
                     if pData.hasItem and pData.itemType then
                         local existing = part:getInventoryItem()
-                        if not existing or existing:getFullType() ~= pData.itemType then
-                            local newItem = SKO_createItem(pData.itemType)
+                        if not existing or (pData.itemData and existing:getFullType() ~= pData.itemData.fullType) then
+                            local newItem = SKOLib.Serializer.deserializeItemData(pData.itemData)
                             if newItem then
-                                pcall(function() newItem:setCondition(pData.condition or 0) end)
-                                if pData.itemModData then
-                                    local imd = newItem:getModData()
-                                    for k,v in pairs(pData.itemModData) do imd[k] = v end
-                                end
                                 part:setInventoryItem(newItem)
                             end
                         end

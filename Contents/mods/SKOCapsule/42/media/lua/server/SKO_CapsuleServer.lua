@@ -43,16 +43,11 @@ function SKO_ServerApplyVehicleData(vehicle, vData)
                 local pData = vData.parts[partId]
                 
                 if pData then
-                    if pData.hasItem and pData.itemType then
+                    if pData.hasItem and pData.itemData then
                         local existing = part:getInventoryItem()
-                        if not existing or existing:getFullType() ~= pData.itemType then
-                            local newItem = SKO_serverCreateItem(pData.itemType)
+                        if not existing or (pData.itemData and existing:getFullType() ~= pData.itemData.fullType) then
+                            local newItem = SKOLib.Serializer.deserializeItemData(pData.itemData)
                             if newItem then
-                                pcall(function() newItem:setCondition(pData.condition or 0) end)
-                                if pData.itemModData then
-                                    local imd = newItem:getModData()
-                                    for k,v in pairs(pData.itemModData) do imd[k] = v end
-                                end
                                 part:setInventoryItem(newItem)
                             end
                         end

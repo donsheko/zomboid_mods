@@ -409,7 +409,7 @@ function SKOWaypointStoragePanel:refreshLists()
         end
 
         if showItem then
-            local text = itemData.name
+            local text = itemData.name or itemData.fullType or "Unknown Item"
             
             -- Añadir indicador de Whitelist si está activo para este tipo
             if whitelist[itemData.fullType] then
@@ -551,6 +551,10 @@ function SKOWaypointStoragePanel:onUploadItem(itemData, transferAll)
 
                 -- Realizar serializacion profunda requerida por SKO Core
                 local serialized = SKOLib.Serializer.serializeItemData(realItem)
+                if not serialized then
+                    print("[SKOWaypoints] ERROR: No se pudo serializar item " .. tostring(realItem:getFullType()))
+                    return
+                end
 
                 -- Agregar variables necesarias para que las listas de la UI funcionen bien (visual)
                 serialized.category = catStr
