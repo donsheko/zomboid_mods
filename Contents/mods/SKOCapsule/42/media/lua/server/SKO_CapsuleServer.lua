@@ -1,5 +1,5 @@
 if not SKO_Capsule then SKO_Capsule = {} end
-SKO_Capsule.DEBUG = true
+SKO_Capsule.DEBUG = false
 
 local function debugLog(msg)
     if SKO_Capsule.DEBUG then
@@ -28,19 +28,6 @@ function SKO_ServerApplyVehicleData(vehicle, vData)
     if vData.modData then
         for k, v in pairs(vData.modData) do vModData[k] = v end
     end
-
-    pcall(function()
-        if vData.color then
-            vehicle:setColorHSV(vData.color.h, vData.color.s, vData.color.v)
-        end
-        local visual = nil
-        if vehicle.getVisual and type(vehicle.getVisual) == "function" then visual = vehicle:getVisual() 
-        elseif vehicle.getVehicleVisual and type(vehicle.getVehicleVisual) == "function" then visual = vehicle:getVehicleVisual() end
-        
-        if visual and vData.skinIndex then
-            if visual.setSkinIndex then visual:setSkinIndex(vData.skinIndex) end
-        end
-    end)
 
     -- Engine B42
     if vData.engineQuality or vData.enginePower then
@@ -129,7 +116,51 @@ function SKO_ServerApplyVehicleData(vehicle, vData)
     pcall(function() vehicle:setTrunkLocked(vData.trunkLocked == true) end)
     if vData.keyId then pcall(function() vehicle:setKeyId(vData.keyId) end) end
 
-    vehicle:transmitUpdatedFields()
+    -- APLICACIÓN FINAL DE COLOR Y SKIN (Posterior a las piezas)
+    pcall(function()
+        local visual = nil
+        if vehicle.getVisual and type(vehicle.getVisual) == "function" then visual = vehicle:getVisual() 
+        elseif vehicle.getVehicleVisual and type(vehicle.getVehicleVisual) == "function" then visual = vehicle:getVehicleVisual() end
+
+        if vData.color then
+            print("[SKOCapsule-Server] Restaurando Color HSV (Vehicle): " .. tostring(vData.color.h) .. "," .. tostring(vData.color.s) .. "," .. tostring(vData.color.v))
+            vehicle:setColorHSV(vData.color.h, vData.color.s, vData.color.v)
+        end
+        if vData.colorRGB and vehicle.setColor then
+            print("[SKOCapsule-Server] Restaurando Color RGB (Vehicle): " .. tostring(vData.colorRGB.r) .. "," .. tostring(vData.colorRGB.g) .. "," .. tostring(vData.colorRGB.b))
+            vehicle:setColor(ImmutableColor.new(vData.colorRGB.r, vData.colorRGB.g, vData.colorRGB.b, 1))
+        end
+        if vData.colorIndex and vehicle.setColorIndex then
+            print("[SKOCapsule-Server] Restaurando Color Index: " .. tostring(vData.colorIndex))
+            vehicle:setColorIndex(vData.colorIndex)
+        end
+
+        -- SkinIndex es autoritativo en el vehículo
+        if vData.skinIndex then 
+            print("[SKOCapsule-Server] Restaurando SkinIndex: " .. tostring(vData.skinIndex))
+            if vehicle.setSkinIndex then 
+                vehicle:setSkinIndex(vData.skinIndex) 
+            end
+            if visual and visual.setSkinIndex then 
+                visual:setSkinIndex(vData.skinIndex) 
+            end
+            if vehicle.updateSkin then vehicle:updateSkin() end
+        end
+
+        -- VisualData (Propiedades internas del objeto visual)
+        if visual and vData.visualData then
+            print("[SKOCapsule-Server] Restaurando VisualData: H=" .. tostring(vData.visualData.hue) .. " S=" .. tostring(vData.visualData.saturation) .. " V=" .. tostring(vData.visualData.value))
+            if visual.setHue then visual:setHue(vData.visualData.hue) end
+            if visual.setSaturation then visual:setSaturation(vData.visualData.saturation) end
+            if visual.setValue then visual:setValue(vData.visualData.value) end
+            if vData.visualData.tint and visual.setTint then
+                visual:setTint(ImmutableColor.new(vData.visualData.tint.r, vData.visualData.tint.g, vData.visualData.tint.b, 1))
+            end
+        end
+    end)
+
+    if vehicle.updatePartModels then pcall(function() vehicle:updatePartModels() end)
+    elseif vehicle.updateVisuals then pcall(function() vehicle:updateVisuals() end) end
 end
 
 function restoreItemsToContainer(container, items, square)
@@ -169,13 +200,13 @@ SKO_Capsule.OnClientCommand = function(module, command, player, args)
             local sq = getCell():getGridSquare(args.x, args.y, args.z)
             local vehicle = addVehicleDebug(args.name, args.dir, 0, sq)
             if vehicle then
-                print("[SKOCapsule-Server] Vehiculo spawneado: " .. tostring(vehicle:getId()) .. ". Iniciando restauración diferida (30 ticks)...")
+                print("[SKOCapsule-Server] Vehiculo spawneado: " .. tostring(vehicle:getId()) .. ". Iniciando restauración diferida (60 ticks)...")
                 
-                -- Restauración diferida reforzada (30 ticks = ~0.5s)
+                -- Restauración diferida reforzada (60 ticks = ~1s)
                 local ticks = 0
                 local function onSpawnTick()
                     ticks = ticks + 1
-                    if ticks >= 30 then
+                    if ticks >= 60 then
                         SKO_ServerApplyVehicleData(vehicle, args.data)
                         sendServerCommand(player, "SKO_Capsule", "doRestore", { 
                             vehicleIdStr = tostring(vehicle:getId()), 

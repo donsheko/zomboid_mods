@@ -1,5 +1,5 @@
 if not SKO_CapsuleClient then SKO_CapsuleClient = {} end
-SKO_CapsuleClient.DEBUG = true
+SKO_CapsuleClient.DEBUG = false
 
 local function debugLog(msg)
     if SKO_CapsuleClient.DEBUG then
@@ -51,11 +51,15 @@ function storeVehicleInContainer(vehicle, itemEquiped)
     local id = vehicle:getScript():getName() .. vehicle:getID() .. "_" .. os.time()
     
     local capturedSkinIndex = 0
-    local visual = SKO_getVehicleVisual(vehicle)
-    if visual and visual.getSkinIndex then
-        pcall(function() capturedSkinIndex = visual:getSkinIndex() end)
+    if vehicle.getSkinIndex then
+        capturedSkinIndex = vehicle:getSkinIndex()
+    else
+        local visual = SKO_getVehicleVisual(vehicle)
+        if visual and visual.getSkinIndex then
+            pcall(function() capturedSkinIndex = visual:getSkinIndex() end)
+        end
     end
-    debugLog("SkinIndex capturado: " .. tostring(capturedSkinIndex))
+    debugLog("SkinIndex capturado: " .. tostring(capturedSkinIndex) .. " / " .. tostring(vehicle:getSkinCount()))
 
     local vehicleData = {
         id = id,
@@ -73,11 +77,51 @@ function storeVehicleInContainer(vehicle, itemEquiped)
         enginePower = vehicle:getEnginePower(),
         rust = vehicle:getRust(),
         color = { h = vehicle:getColorHue(), s = vehicle:getColorSaturation(), v = vehicle:getColorValue() },
+        colorIndex = (type(vehicle.getColorIndex) == "function") and vehicle:getColorIndex() or nil,
         skinIndex = capturedSkinIndex,
-        doors = {},
-        windows = {},
-        modData = SKO_copyTable(vehicle:getModData())
     }
+
+    -- B42 Color Refuerzo: RGB + Visual Tint
+    local visual = SKO_getVehicleVisual(vehicle)
+    if visual then
+        pcall(function()
+            vehicleData.visualData = {
+                hue = visual:getHue(),
+                saturation = visual:getSaturation(),
+                value = visual:getValue()
+            }
+            if visual.getTint then
+                local t = visual:getTint()
+                vehicleData.visualData.tint = { r = t:getR(), g = t:getG(), b = t:getB() }
+            end
+        end)
+    end
+
+    -- B42 Color Refuerzo: RGB
+    if vehicle.getColor and type(vehicle.getColor) == "function" then
+        pcall(function()
+            local c = vehicle:getColor()
+            if c then
+                vehicleData.colorRGB = { r = c:getR(), g = c:getG(), b = c:getB() }
+            end
+        end)
+    end
+
+    -- Log ModData keys for debugging
+    local mData = vehicle:getModData()
+    if mData then
+        local keys = ""
+        pcall(function()
+            for k, v in pairs(mData) do keys = keys .. tostring(k) .. ", " end
+        end)
+        debugLog("Vehicle ModData keys: " .. keys)
+    end
+
+    vehicleData.doors = {}
+    vehicleData.windows = {}
+    vehicleData.modData = SKO_copyTable(vehicle:getModData())
+    
+    debugLog("Color capturado: H=" .. tostring(vehicleData.color.h) .. " S=" .. tostring(vehicleData.color.s) .. " V=" .. tostring(vehicleData.color.v) .. " Index=" .. tostring(vehicleData.colorIndex))
 
     for i = 1, vehicle:getPartCount() do
         local part = vehicle:getPartByIndex(i - 1)
@@ -153,16 +197,6 @@ function SKO_applyVehicleData(vehicle, vData)
     if vData.modData then
         for k, v in pairs(vData.modData) do vModData[k] = v end
     end
-
-    pcall(function()
-        if vData.color then
-            vehicle:setColorHSV(vData.color.h, vData.color.s, vData.color.v)
-        end
-        local visual = SKO_getVehicleVisual(vehicle)
-        if visual and vData.skinIndex and visual.setSkinIndex then 
-            visual:setSkinIndex(vData.skinIndex) 
-        end
-    end)
 
     -- Engine B42
     if vData.engineQuality or vData.enginePower then
@@ -250,6 +284,55 @@ function SKO_applyVehicleData(vehicle, vData)
     pcall(function() vehicle:setTrunkLocked(vData.trunkLocked == true) end)
     if vData.keyId then pcall(function() vehicle:setKeyId(vData.keyId) end) end
 
+    -- APLICACIÓN FINAL DE COLOR Y SKIN (Posterior a las piezas para evitar sobrescrituras)
+    pcall(function()
+        local visual = SKO_getVehicleVisual(vehicle)
+        
+        if vData.color then
+            debugLog("Restaurando Color HSV (Vehicle): " .. tostring(vData.color.h) .. "," .. tostring(vData.color.s) .. "," .. tostring(vData.color.v))
+            vehicle:setColorHSV(vData.color.h, vData.color.s, vData.color.v)
+            -- Forzamos comando nativo de PZ para sincronización total
+            local args = { vehicle = vehicle:getId(), h = vData.color.h, s = vData.color.s, v = vData.color.v }
+            sendClientCommand(getPlayer(), 'vehicle', 'setHSV', args)
+        end
+
+        if vData.colorRGB and vehicle.setColor then
+            debugLog("Restaurando Color RGB (Vehicle): " .. tostring(vData.colorRGB.r) .. "," .. tostring(vData.colorRGB.g) .. "," .. tostring(vData.colorRGB.b))
+            vehicle:setColor(ImmutableColor.new(vData.colorRGB.r, vData.colorRGB.g, vData.colorRGB.b, 1))
+        end
+
+        if vData.colorIndex and vehicle.setColorIndex then
+            debugLog("Restaurando Color Index: " .. tostring(vData.colorIndex))
+            vehicle:setColorIndex(vData.colorIndex)
+        end
+
+        -- SkinIndex es autoritativo en el vehículo
+        if vData.skinIndex then 
+            debugLog("Restaurando SkinIndex: " .. tostring(vData.skinIndex))
+            if vehicle.setSkinIndex then 
+                vehicle:setSkinIndex(vData.skinIndex) 
+            end
+            if visual and visual.setSkinIndex then 
+                visual:setSkinIndex(vData.skinIndex) 
+            end
+            if vehicle.updateSkin then vehicle:updateSkin() end
+            -- Forzamos comando nativo para Skin
+            local args = { vehicle = vehicle:getId(), index = vData.skinIndex }
+            sendClientCommand(getPlayer(), 'vehicle', 'setSkinIndex', args)
+        end
+
+        -- VisualData (Propiedades internas del objeto visual)
+        if visual and vData.visualData then
+            debugLog("Restaurando VisualData: H=" .. tostring(vData.visualData.hue) .. " S=" .. tostring(vData.visualData.saturation) .. " V=" .. tostring(vData.visualData.value))
+            if visual.setHue then visual:setHue(vData.visualData.hue) end
+            if visual.setSaturation then visual:setSaturation(vData.visualData.saturation) end
+            if visual.setValue then visual:setValue(vData.visualData.value) end
+            if vData.visualData.tint and visual.setTint then
+                visual:setTint(ImmutableColor.new(vData.visualData.tint.r, vData.visualData.tint.g, vData.visualData.tint.b, 1))
+            end
+        end
+    end)
+
     if vehicle.updatePartModels then pcall(function() vehicle:updatePartModels() end)
     elseif vehicle.updateVisuals then pcall(function() vehicle:updateVisuals() end) end
 end
@@ -271,13 +354,13 @@ function restoreVehicle(vehicleData, itemEquiped)
 
     local vehicle = addVehicleDebug(vehicleData.name, player:getDir(), 0, sq)
     if vehicle then
-        debugLog("Vehiculo spawneado (SP). Iniciando restauración diferida (30 ticks)...")
+        debugLog("Vehiculo spawneado (SP). Iniciando restauración diferida (60 ticks)...")
         
         -- Restauración diferida para SP (mismo principio que en servidor MP)
         local ticks = 0
         local function onRestoreTick()
             ticks = ticks + 1
-            if ticks >= 30 then
+            if ticks >= 60 then
                 SKO_applyVehicleData(vehicle, vehicleData)
                 local stored = SKO_getCapsuleData()
                 stored[vehicleData.id] = nil

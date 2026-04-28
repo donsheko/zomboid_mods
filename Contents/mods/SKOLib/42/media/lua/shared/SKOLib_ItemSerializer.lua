@@ -7,7 +7,7 @@
 
 SKOLib = SKOLib or {}
 SKOLib.Serializer = SKOLib.Serializer or {}
-SKOLib.Serializer.DEBUG = true
+SKOLib.Serializer.DEBUG = false
 
 local function debugLog(msg)
     if SKOLib.Serializer.DEBUG then
