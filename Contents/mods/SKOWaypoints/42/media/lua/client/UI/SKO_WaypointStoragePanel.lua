@@ -646,8 +646,24 @@ function SKOWaypointStoragePanel:onDownloadItem(itemData, transferAll)
                         local square = player:getCurrentSquare()
                         if square then
                             local worldItem = square:AddWorldInventoryItem(newItem, 0.5, 0.5, 0)
-                            -- BUG FIX B42: Pasar el worldItem para aplicar el fluido al contenedor del suelo
+                            -- BUG FIX B42 SUELO: Para items en el suelo, necesitamos que el item tome 'forma'
+                            -- Aplicamos la restauración diferida
                             SKOLib.Serializer.applyDeferredRestoration(newItem, worldItem)
+                            
+                            -- Refuerzo agresivo: si es un PetrolCan, forzamos el vaciado del WorldObject específicamente
+                            if newItem:getFullType() == "Base.PetrolCan" and worldItem and worldItem.getFluidContainer then
+                                local fc = worldItem:getFluidContainer()
+                                if fc then
+                                    pcall(function() 
+                                        fc:Empty()
+                                        local mData = newItem:getModData()
+                                        if mData.skoRestoreFluid then
+                                            -- Si aún no se ha limpiado, forzamos aquí también
+                                            SKOLib.Serializer.applyDeferredRestoration(newItem, worldItem)
+                                        end
+                                    end)
+                                end
+                            end
                         else
                             player:getInventory():AddItem(newItem)
                             SKOLib.Serializer.applyDeferredRestoration(newItem)
