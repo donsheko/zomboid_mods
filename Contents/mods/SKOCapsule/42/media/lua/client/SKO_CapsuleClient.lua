@@ -1,4 +1,11 @@
 if not SKO_CapsuleClient then SKO_CapsuleClient = {} end
+SKO_CapsuleClient.DEBUG = true
+
+local function debugLog(msg)
+    if SKO_CapsuleClient.DEBUG then
+        print("[SKOCapsule-Client] " .. tostring(msg))
+    end
+end
 
 -- Global helpers
 function SKO_getCapsuleData()
@@ -39,6 +46,7 @@ end
 
 -- MAIN LOGIC
 function storeVehicleInContainer(vehicle, itemEquiped)
+    debugLog("Iniciando encapsulado de vehiculo: " .. tostring(vehicle:getScript():getName()))
     local storedVehicles = SKO_getCapsuleData()
     local id = vehicle:getScript():getName() .. vehicle:getID() .. "_" .. os.time()
     
@@ -47,6 +55,7 @@ function storeVehicleInContainer(vehicle, itemEquiped)
     if visual and visual.getSkinIndex then
         pcall(function() capturedSkinIndex = visual:getSkinIndex() end)
     end
+    debugLog("SkinIndex capturado: " .. tostring(capturedSkinIndex))
 
     local vehicleData = {
         id = id,
@@ -79,7 +88,8 @@ function storeVehicleInContainer(vehicle, itemEquiped)
             vehicleData.parts[partId] = {
                 condition = part:getCondition(),
                 hasItem = invItem ~= nil,
-                itemData = invItem and SKOLib.Serializer.serializeItemData(invItem) or nil
+                itemData = invItem and SKOLib.Serializer.serializeItemData(invItem) or nil,
+                modData = SKO_copyTable(part:getModData())
             }
 
             -- Items inside (Trunk, Seats)
@@ -131,16 +141,27 @@ end
 
 function SKO_applyVehicleData(vehicle, vData)
     if not vehicle or not vData then return end
+    debugLog("Aplicando datos locales (Cliente): " .. tostring(vData.name))
     
+    -- Limpieza total de partes generadas aleatoriamente para evitar duplicados visuales
+    for i = 1, vehicle:getPartCount() do
+        local part = vehicle:getPartByIndex(i - 1)
+        if part then pcall(function() part:setInventoryItem(nil) end) end
+    end
+
     local vModData = vehicle:getModData()
     if vData.modData then
         for k, v in pairs(vData.modData) do vModData[k] = v end
     end
 
     pcall(function()
-        vehicle:setColorHSV(vData.color.h, vData.color.s, vData.color.v)
+        if vData.color then
+            vehicle:setColorHSV(vData.color.h, vData.color.s, vData.color.v)
+        end
         local visual = SKO_getVehicleVisual(vehicle)
-        if visual and vData.skinIndex and visual.setSkinIndex then visual:setSkinIndex(vData.skinIndex) end
+        if visual and vData.skinIndex and visual.setSkinIndex then 
+            visual:setSkinIndex(vData.skinIndex) 
+        end
     end)
 
     -- Engine B42
@@ -161,18 +182,26 @@ function SKO_applyVehicleData(vehicle, vData)
                 local partId = part:getId()
                 local pData = vData.parts[partId]
                 if pData then
-                    if pData.hasItem and pData.itemType then
-                        local existing = part:getInventoryItem()
-                        if not existing or (pData.itemData and existing:getFullType() ~= pData.itemData.fullType) then
-                            local newItem = SKOLib.Serializer.deserializeItemData(pData.itemData)
-                            if newItem then
-                                part:setInventoryItem(newItem)
+                    if pData.hasItem and pData.itemData then
+                        -- Forzamos la reinstalación del ítem para asegurar integridad visual y de estado (B42)
+                        local newItem = SKOLib.Serializer.deserializeItemData(pData.itemData)
+                        if newItem then
+                            part:setInventoryItem(newItem)
+                            -- Restauración de fluidos diferida (B42)
+                            if SKOLib and SKOLib.Serializer and SKOLib.Serializer.applyDeferredRestoration then
+                                SKOLib.Serializer.applyDeferredRestoration(newItem)
                             end
                         end
                     else
                         part:setInventoryItem(nil)
                     end
                     pcall(function() part:setCondition(pData.condition or 0) end)
+                    
+                    -- Part ModData (Mods Support)
+                    if pData.modData then
+                        local pModData = part:getModData()
+                        for k, v in pairs(pData.modData) do pModData[k] = v end
+                    end
 
                     -- Items inside
                     local container = part:getItemContainer()
@@ -184,7 +213,7 @@ function SKO_applyVehicleData(vehicle, vData)
                                 pcall(function() container:setCapacity(invData.capacity) end)
                             end
                             if type(invData.items) == "table" then
-                                restoreItemsToContainer(container, invData.items)
+                                restoreItemsToContainer(container, invData.items, vehicle:getSquare())
                             end
                         end
                     end
@@ -242,22 +271,50 @@ function restoreVehicle(vehicleData, itemEquiped)
 
     local vehicle = addVehicleDebug(vehicleData.name, player:getDir(), 0, sq)
     if vehicle then
-        SKO_applyVehicleData(vehicle, vehicleData)
-        local stored = SKO_getCapsuleData()
-        stored[vehicleData.id] = nil
-        SKO_setCapsuleData(stored)
+        debugLog("Vehiculo spawneado (SP). Iniciando restauración diferida (30 ticks)...")
+        
+        -- Restauración diferida para SP (mismo principio que en servidor MP)
+        local ticks = 0
+        local function onRestoreTick()
+            ticks = ticks + 1
+            if ticks >= 30 then
+                SKO_applyVehicleData(vehicle, vehicleData)
+                local stored = SKO_getCapsuleData()
+                stored[vehicleData.id] = nil
+                SKO_setCapsuleData(stored)
+                Events.OnTick.Remove(onRestoreTick)
+                debugLog("Restauración diferida (SP) completada.")
+            end
+        end
+        Events.OnTick.Add(onRestoreTick)
     end
 end
 
-function restoreItemsToContainer(container, items)
+function restoreItemsToContainer(container, items, square)
     if not items or type(items) ~= "table" then return end
     for _, itemData in ipairs(items) do
         if itemData.fullType then
-            local item = nil
-            if SKOLib and SKOLib.Serializer then
-                item = SKOLib.Serializer.deserializeItemData(itemData)
+            local ok, item = pcall(SKOLib.Serializer.deserializeItemData, itemData)
+            if ok and item then
+                container:AddItem(item)
+                -- Restauración de fluidos diferida (B42)
+                if SKOLib and SKOLib.Serializer and SKOLib.Serializer.applyDeferredRestoration then
+                    SKOLib.Serializer.applyDeferredRestoration(item)
+                end
+            else
+                -- Fallback: Muebles recogibles de B42 que no pueden instanciarse como items
+                local spriteName = itemData.worldSprite or (itemData.fullType and itemData.fullType:match("%.(.+)$"))
+                if spriteName and square then
+                    pcall(function()
+                        local dummyItem = instanceItem("Base.Plank")
+                        local props = ISMoveableSpriteProps.new(spriteName)
+                        if props and props.isMoveable then
+                            props:placeMoveableInternal(square, dummyItem, spriteName)
+                            print("[SKOCapsule] Mueble spawneado (fallback): " .. tostring(itemData.fullType))
+                        end
+                    end)
+                end
             end
-            if item then container:AddItem(item) end
         end
     end
 end

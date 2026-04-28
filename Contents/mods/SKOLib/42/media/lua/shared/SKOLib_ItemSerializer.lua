@@ -7,6 +7,13 @@
 
 SKOLib = SKOLib or {}
 SKOLib.Serializer = SKOLib.Serializer or {}
+SKOLib.Serializer.DEBUG = true
+
+local function debugLog(msg)
+    if SKOLib.Serializer.DEBUG then
+        print("[SKOLib-Serializer] " .. tostring(msg))
+    end
+end
 
 -- Aplica fluidos guardados en modData (deferred restoration)
 function SKOLib.Serializer.applyDeferredRestoration(item, worldObj)
@@ -91,6 +98,7 @@ end
 -- Función recursiva profunda
 function SKOLib.Serializer.serializeItemData(item, worldObj)
     if not item then return nil end
+    debugLog("Serializing: " .. tostring(item:getFullType()))
     local data = {}
     
     -- 1. Atributos Base
@@ -203,11 +211,27 @@ function SKOLib.Serializer.serializeItemData(item, worldObj)
     end
     if item.getDeviceData and item:getDeviceData() then
         local dd = item:getDeviceData()
-        data.device = { channel = dd:getChannel(), turnedOn = dd:getIsTurnedOn(), battery = dd:getBattery() }
+        data.device = {}
+        -- B42: Los dispositivos electrónicos son extremadamente inestables en serialización directa
+        pcall(function() 
+            local channel = dd:getChannel()
+            if channel then data.device.channel = channel end
+        end)
+        pcall(function() 
+            local turnedOn = dd:getIsTurnedOn()
+            if turnedOn ~= nil then data.device.turnedOn = turnedOn end
+        end)
+        -- Saltamos getBattery por ahora para evitar crash persistente en B42
+        -- pcall(function() data.device.battery = dd:getBattery() end)
+        debugLog("Serialized DeviceData for " .. tostring(data.fullType))
     end
     
     if instanceof(item, "DrainableComboItem") then
-        data.usedDelta = item:getUsedDelta()
+        if type(item.getUsedDelta) == "function" then
+            data.usedDelta = item:getUsedDelta()
+        elseif type(item.getCurrentUsesFloat) == "function" then
+            data.usedDelta = item:getCurrentUsesFloat()
+        end
     end
 
     if item:IsInventoryContainer() then
@@ -229,8 +253,12 @@ end
 
 function SKOLib.Serializer.deserializeItemData(itemData)
     if not itemData then return nil end
+    debugLog("Deserializing: " .. tostring(itemData.fullType))
     local ok, newItem = pcall(instanceItem, itemData.fullType)
-    if not ok or not newItem then return nil end
+    if not ok or not newItem then 
+        debugLog("FAILED to instanceItem: " .. tostring(itemData.fullType))
+        return nil 
+    end
 
     newItem:setCondition(itemData.condition or newItem:getConditionMax())
     newItem:setFavorite(itemData.favorite or false)
@@ -301,14 +329,16 @@ function SKOLib.Serializer.deserializeItemData(itemData)
     if itemData.keyId and instanceof(newItem, "Key") then newItem:setKeyId(itemData.keyId) end
     if itemData.device and newItem:getDeviceData() then
         local dd = newItem:getDeviceData()
-        dd:setChannel(itemData.device.channel)
-        dd:setIsTurnedOn(itemData.device.turnedOn)
-        dd:setBattery(itemData.device.battery)
+        if itemData.device.channel then pcall(dd.setChannel, dd, itemData.device.channel) end
+        if itemData.device.turnedOn ~= nil then pcall(dd.setIsTurnedOn, dd, itemData.device.turnedOn) end
+        if itemData.device.battery then pcall(dd.setBattery, dd, itemData.device.battery) end
     end
     
     if itemData.usedDelta and instanceof(newItem, "DrainableComboItem") then
         if not (itemData.fluid and newItem:getFluidContainer()) then
-            newItem:setUsedDelta(itemData.usedDelta)
+            if type(newItem.setUsedDelta) == "function" then
+                newItem:setUsedDelta(itemData.usedDelta)
+            end
         end
     end
 
