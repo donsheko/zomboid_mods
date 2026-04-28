@@ -186,7 +186,10 @@ function SKOWaypointStoragePanel:refreshLists()
         local okD, isD = pcall(function() return itemToEval:IsDrainable() end)
         if okD and isD then
             pcall(function()
-                if type(itemToEval.getCurrentUsesFloat) == "function" then
+                if itemToEval.getFluidContainer and itemToEval:getFluidContainer() then
+                    local fc = itemToEval:getFluidContainer()
+                    text = text .. " (Fluidos: " .. math.floor(fc:getAmount()) .. "ml)"
+                elseif type(itemToEval.getCurrentUsesFloat) == "function" then
                     text = text .. " (Restante: " .. math.floor(itemToEval:getCurrentUsesFloat() * 100) .. "%)"
                 elseif type(itemToEval.getUsedDelta) == "function" then
                     text = text .. " (Restante: " .. math.floor(itemToEval:getUsedDelta() * 100) .. "%)"
@@ -420,7 +423,11 @@ function SKOWaypointStoragePanel:refreshLists()
                 text = text .. " (Cond: " .. itemData.condition .. ")"
             end
             if itemData.usedDelta then
-                text = text .. " (Restante: " .. math.floor(itemData.usedDelta * 100) .. "%)"
+                if itemData.fluid then
+                    text = text .. " (" .. math.floor(itemData.usedDelta) .. "ml)"
+                else
+                    text = text .. " (Restante: " .. math.floor(itemData.usedDelta * 100) .. "%)"
+                end
             end
             if itemData.hungChange then
                 text = text .. " (Hambre: " .. math.floor(itemData.hungChange * 100) .. ")"
@@ -550,7 +557,8 @@ function SKOWaypointStoragePanel:onUploadItem(itemData, transferAll)
                 end
 
                 -- Realizar serializacion profunda requerida por SKO Core
-                local serialized = SKOLib.Serializer.serializeItemData(realItem)
+                -- BUG FIX B42: Pasar el worldItem para que el serializer pueda leer los fluidos del suelo
+                local serialized = SKOLib.Serializer.serializeItemData(realItem, data.worldItem)
                 if not serialized then
                     print("[SKOWaypoints] ERROR: No se pudo serializar item " .. tostring(realItem:getFullType()))
                     return
@@ -564,7 +572,9 @@ function SKOWaypointStoragePanel:onUploadItem(itemData, transferAll)
                 serialized.isDrainable = realItem:IsDrainable()
 
                 if serialized.isDrainable then
-                    if type(realItem.getCurrentUsesFloat) == "function" then
+                    if serialized.fluid then
+                        serialized.usedDelta = serialized.fluid.amount
+                    elseif type(realItem.getCurrentUsesFloat) == "function" then
                         serialized.usedDelta = realItem:getCurrentUsesFloat()
                     elseif type(realItem.getUsedDelta) == "function" then
                         serialized.usedDelta = realItem:getUsedDelta()
@@ -635,12 +645,16 @@ function SKOWaypointStoragePanel:onDownloadItem(itemData, transferAll)
                     if self.downloadToGround then
                         local square = player:getCurrentSquare()
                         if square then
-                            square:AddWorldInventoryItem(newItem, 0.5, 0.5, 0)
+                            local worldItem = square:AddWorldInventoryItem(newItem, 0.5, 0.5, 0)
+                            -- BUG FIX B42: Pasar el worldItem para aplicar el fluido al contenedor del suelo
+                            SKOLib.Serializer.applyDeferredRestoration(newItem, worldItem)
                         else
                             player:getInventory():AddItem(newItem)
+                            SKOLib.Serializer.applyDeferredRestoration(newItem)
                         end
                     else
                         player:getInventory():AddItem(newItem)
+                        SKOLib.Serializer.applyDeferredRestoration(newItem)
                     end
                 end)
                 if placeOk then
@@ -813,10 +827,9 @@ function onAutoUploadUpdate(player)
 
     if #itemsToRemove == 0 then return end
 
-    -- PROCESS
-    for _, data in ipairs(itemsToRemove) do
-        local item = data.item
-        local ok, serialized = pcall(SKOLib.Serializer.serializeItemData, item)
+        if ok and serialized then
+            -- BUG FIX B42: Pasar el worldObj para leer fluidos del suelo
+            local ok, serialized = pcall(SKOLib.Serializer.serializeItemData, item, data.worldObj)
         
         if ok and serialized then
             local catStr = item:getDisplayCategory()
@@ -830,7 +843,9 @@ function onAutoUploadUpdate(player)
             serialized.isDrainable = item:IsDrainable()
 
             if serialized.isDrainable then
-                if type(item.getCurrentUsesFloat) == "function" then
+                if serialized.fluid then
+                    serialized.usedDelta = serialized.fluid.amount
+                elseif type(item.getCurrentUsesFloat) == "function" then
                     serialized.usedDelta = item:getCurrentUsesFloat()
                 elseif type(item.getUsedDelta) == "function" then
                     serialized.usedDelta = item:getUsedDelta()

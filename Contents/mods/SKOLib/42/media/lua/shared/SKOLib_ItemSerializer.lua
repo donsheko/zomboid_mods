@@ -9,7 +9,7 @@ SKOLib = SKOLib or {}
 SKOLib.Serializer = SKOLib.Serializer or {}
 
 -- Función recursiva profunda
-function SKOLib.Serializer.serializeItemData(item)
+function SKOLib.Serializer.serializeItemData(item, worldObj)
     if not item then return nil end
     local data = {}
     
@@ -40,15 +40,24 @@ function SKOLib.Serializer.serializeItemData(item)
     -- 3. Especializaciones por Tipo
     
     -- Fluidos (pz-serialization-fluid - B42)
-    if item.getFluidContainer and item:getFluidContainer() then
-        local fc = item:getFluidContainer()
-        local fluidTypeStr = ""
-        if not fc:isEmpty() and fc:getPrimaryFluid() then
-            fluidTypeStr = fc:getPrimaryFluid():getFluidTypeString()
+    -- BUG FIX B42: Los fluidos en el suelo viven en el WorldObject, no en el Item
+    local fc = nil
+    if item.getFluidContainer then fc = item:getFluidContainer() end
+    if not fc and worldObj and worldObj.getFluidContainer then
+        fc = worldObj:getFluidContainer()
+    end
+
+    if fc then
+        local fType = ""
+        if type(fc.getContainerType) == "function" then
+            fType = fc:getContainerType()
+        elseif not fc:isEmpty() and fc:getPrimaryFluid() then
+            fType = fc:getPrimaryFluid():getFluidTypeString()
         end
+        
         data.fluid = {
             amount = fc:getAmount(),
-            type = fluidTypeStr,
+            type = fType,
             tainted = fc:isTainted()
         }
         print("[SKOLib-Fluid] Serialized: " .. tostring(data.fluid.amount) .. " | Type: " .. tostring(data.fluid.type))
@@ -139,8 +148,8 @@ function SKOLib.Serializer.serializeItemData(item)
         }
     end
     
-    -- Drainables clásicos (si no son fluidos)
-    if not data.fluid and instanceof(item, "DrainableComboItem") then
+    -- Drainables clásicos (si no son fluidos o son hibridos)
+    if instanceof(item, "DrainableComboItem") then
         data.usedDelta = item:getUsedDelta()
     end
 
@@ -160,6 +169,169 @@ function SKOLib.Serializer.serializeItemData(item)
     end
 
     return data
+end
+
+-- Aplica fluidos guardados en modData (deferred restoration)
+function SKOLib.Serializer.applyDeferredRestoration(item, worldObj)
+    if not item then return end
+    local mData = item:getModData()
+    local fluidData = mData.skoRestoreFluid
+    
+    if fluidData then
+        -- En B42 el contenedor puede estar en el Item O en el WorldObject (si está en el suelo)
+        local fc = nil
+        if item.getFluidContainer then fc = item:getFluidContainer() end
+        if not fc and worldObj and worldObj.getFluidContainer then
+            fc = worldObj:getFluidContainer()
+        end
+
+        if fc then
+            print("[SKOLib-Fluid] Applying DEFERRED restoration: " .. tostring(fluidData.amount) .. " | Type: " .. tostring(fluidData.type))
+            
+            -- Vaciado absoluto
+            pcall(function() fc:Empty() end)
+            
+            if fluidData.amount and fluidData.amount > 0 and fluidData.type and fluidData.type ~= "" then
+                local fluidTypeObj = nil
+                local ftOk, ft = pcall(function() 
+                    if FluidType and FluidType.FromNameLower then
+                        return FluidType.FromNameLower(fluidData.type)
+                    end
+                end)
+                if ftOk and ft then fluidTypeObj = ft end
+                if not fluidTypeObj then
+                    local fOk, fl = pcall(function() return Fluid[fluidData.type] end)
+                    if fOk and fl then fluidTypeObj = fl end
+                end
+
+                if fluidTypeObj then
+                    -- Aplicar con ratio y cantidad absoluta para cubrir todos los frentes
+                    local targetAmount = fluidData.amount
+                    local currentCap = fc:getCapacity()
+                    
+                    print("[SKOLib-Fluid] Restoring. Target: " .. tostring(targetAmount) .. " | SavedCap: " .. tostring(fluidData.capacity) .. " | CurrentCap: " .. tostring(currentCap))
+
+                    -- Si el targetAmount es > 0 y <= 1, y la capacidad es > 1, es un RATIO (0.5 = 5L)
+                    if targetAmount > 0 and targetAmount <= 1.0 and currentCap > 1.0 then
+                        print("[SKOLib-Fluid] Amount looks like a RATIO. Converting to Absolute ml.")
+                        targetAmount = targetAmount * currentCap
+                    end
+
+                    pcall(function() fc:addFluid(fluidTypeObj, targetAmount) end)
+                    pcall(function() fc:adjustAmount(targetAmount) end)
+                    
+                    -- Sincronizar barra visual si es Drainable
+                    if instanceof(item, "DrainableComboItem") and currentCap > 0 then
+                        pcall(function() item:setUsedDelta(targetAmount / currentCap) end)
+                    end
+                end
+            end
+
+            if fluidData.tainted then pcall(function() fc:setTainted(true) end) end
+            
+            -- Limpiar modData para no re-aplicar
+            mData.skoRestoreFluid = nil
+            
+            -- Sincronizar
+            pcall(function() item:syncItemFields() end)
+            print("[SKOLib-Fluid] Deferred Restoration Complete. Final Amount: " .. tostring(fc:getAmount()))
+        end
+    end
+end
+
+        if fc then
+            print("[SKOLib-Fluid] Applying DEFERRED restoration: " .. tostring(fluidData.amount) .. " | Type: " .. tostring(fluidData.type))
+            
+            -- Vaciado absoluto
+            pcall(function() fc:Empty() end)
+            
+            if fluidData.amount > 0 and fluidData.type and fluidData.type ~= "" then
+                local fluidTypeObj = nil
+                local ftOk, ft = pcall(function() 
+                    if FluidType and FluidType.FromNameLower then
+                        return FluidType.FromNameLower(fluidData.type)
+                    end
+                end)
+                if ftOk and ft then fluidTypeObj = ft end
+                if not fluidTypeObj then
+                    local fOk, fl = pcall(function() return Fluid[fluidData.type] end)
+                    if fOk and fl then fluidTypeObj = fl end
+                end
+
+                if fluidTypeObj then
+                    local targetAmount = fluidData.amount
+                    local currentCap = fc:getCapacity()
+                    
+                    if targetAmount > 0 and targetAmount <= 1.0 and currentCap > 1.0 then
+                        targetAmount = targetAmount * currentCap
+                    end
+
+                    pcall(function() fc:addFluid(fluidTypeObj, targetAmount) end)
+                    pcall(function() fc:adjustAmount(targetAmount) end)
+                    
+                    if instanceof(item, "DrainableComboItem") and currentCap > 0 then
+                        pcall(function() item:setUsedDelta(targetAmount / currentCap) end)
+                    end
+                end
+            end
+
+            if fluidData.tainted then pcall(function() fc:setTainted(true) end) end
+            
+            -- Limpiar modData para no re-aplicar
+            mData.skoRestoreFluid = nil
+            
+            -- Sincronizar
+            pcall(function() item:syncItemFields() end)
+            print("[SKOLib-Fluid] Deferred Restoration Complete. Final Amount: " .. tostring(fc:getAmount()))
+        end
+    end
+end
+
+        if fluidData.amount > 0 and fluidData.type and fluidData.type ~= "" then
+            local fluidTypeObj = nil
+            local ftOk, ft = pcall(function() 
+                if FluidType and FluidType.FromNameLower then
+                    return FluidType.FromNameLower(fluidData.type)
+                end
+            end)
+            if ftOk and ft then fluidTypeObj = ft end
+            if not fluidTypeObj then
+                local fOk, fl = pcall(function() return Fluid[fluidData.type] end)
+                if fOk and fl then fluidTypeObj = fl end
+            end
+
+            if fluidTypeObj then
+                -- Aplicar con ratio y cantidad absoluta para cubrir todos los frentes
+                local targetAmount = fluidData.amount
+                local currentCap = fc:getCapacity()
+                
+                print("[SKOLib-Fluid] Restoring. Target: " .. tostring(targetAmount) .. " | SavedCap: " .. tostring(fluidData.capacity) .. " | CurrentCap: " .. tostring(currentCap))
+
+                -- Si el targetAmount es > 0 y <= 1, y la capacidad es > 1, es un RATIO (0.5 = 5L)
+                if targetAmount > 0 and targetAmount <= 1.0 and currentCap > 1.0 then
+                    print("[SKOLib-Fluid] Amount looks like a RATIO. Converting to Absolute ml.")
+                    targetAmount = targetAmount * currentCap
+                end
+
+                pcall(function() fc:addFluid(fluidTypeObj, targetAmount) end)
+                pcall(function() fc:adjustAmount(targetAmount) end)
+                
+                -- Sincronizar barra visual si es Drainable
+                if instanceof(item, "DrainableComboItem") and currentCap > 0 then
+                    pcall(function() item:setUsedDelta(targetAmount / currentCap) end)
+                end
+            end
+        end
+
+        if fluidData.tainted then pcall(function() fc:setTainted(true) end) end
+        
+        -- Limpiar modData para no re-aplicar
+        mData.skoRestoreFluid = nil
+        
+        -- Sincronizar
+        pcall(function() item:syncItemFields() end)
+        print("[SKOLib-Fluid] Deferred Restoration Complete. Final Amount: " .. tostring(fc:getAmount()))
+    end
 end
 
 -- Re-escribe Item a Objeto Físico desde Tabla
@@ -185,54 +357,14 @@ function SKOLib.Serializer.deserializeItemData(itemData)
 
     -- 3. Restauración Especializada
     
-    -- Fluidos (B42)
+    -- Fluidos (B42) - REFACTORIZACIÓN RADICAL
     if itemData.fluid and newItem:getFluidContainer() then
+        -- Guardamos la capacidad máxima del item original si existe
         local fc = newItem:getFluidContainer()
-        print("[SKOLib-Fluid] Deserializing... Target Amount: " .. tostring(itemData.fluid.amount) .. " | Target Type: " .. tostring(itemData.fluid.type))
+        itemData.fluid.capacity = fc:getCapacity()
         
-        -- Verificar si el item ya trae el mismo fluido por defecto (ej: PetrolCan ya trae Gasoline)
-        local currentFluidType = ""
-        if not fc:isEmpty() and fc:getPrimaryFluid() then
-            currentFluidType = fc:getPrimaryFluid():getFluidTypeString()
-        end
-        print("[SKOLib-Fluid] Current Default Fluid: " .. tostring(currentFluidType))
-
-        if currentFluidType == itemData.fluid.type then
-            -- Mismo fluido: simplemente ajustamos la cantidad
-            local ok, err = pcall(function() fc:adjustAmount(itemData.fluid.amount) end)
-            print("[SKOLib-Fluid] adjustAmount result: " .. tostring(ok) .. " | Err: " .. tostring(err))
-        else
-            -- Distinto fluido o vacio: Forzar vaciado usando múltiples métodos por seguridad
-            pcall(function() fc:Empty() end)
-            local ok, err = pcall(function() fc:adjustAmount(0.0) end)
-            print("[SKOLib-Fluid] clear/adjust to 0 result: " .. tostring(ok) .. " | Err: " .. tostring(err))
-            
-            if itemData.fluid.amount > 0 and itemData.fluid.type and itemData.fluid.type ~= "" then
-                local fluidObj = nil
-                if Fluid and Fluid.getAllFluids then
-                    local allFluids = Fluid.getAllFluids()
-                    if allFluids then
-                        for i=0, allFluids:size()-1 do
-                            local f = allFluids:get(i)
-                            if f:getFluidTypeString() == itemData.fluid.type then
-                                fluidObj = f
-                                break
-                            end
-                        end
-                    end
-                end
-                if fluidObj then
-                    local ok2, err2 = pcall(function() fc:addFluid(fluidObj, itemData.fluid.amount) end)
-                    print("[SKOLib-Fluid] addFluid result: " .. tostring(ok2) .. " | Err: " .. tostring(err2))
-                end
-            end
-        end
-
-        if itemData.fluid.tainted then pcall(function() fc:setTainted(true) end) end
-        
-        -- SINCRONIZAR EL ITEM: Sin esto, Zomboid ignora el cambio de cantidad
-        local syncOk, syncErr = pcall(function() newItem:syncItemFields() end)
-        print("[SKOLib-Fluid] syncItemFields result: " .. tostring(syncOk) .. " | Err: " .. tostring(syncErr))
+        newItem:getModData().skoRestoreFluid = itemData.fluid
+        print("[SKOLib-Fluid] Storing fluid data in modData for deferred restoration: " .. tostring(itemData.fluid.amount) .. "/" .. tostring(itemData.fluid.capacity))
     end
 
     -- Ropa
@@ -305,7 +437,12 @@ function SKOLib.Serializer.deserializeItemData(itemData)
     
     -- Drainables
     if itemData.usedDelta and instanceof(newItem, "DrainableComboItem") then
-        newItem:setUsedDelta(itemData.usedDelta)
+        -- Si el item tiene FluidContainer, el usedDelta DEBE sincronizarse con el fluido
+        -- pero solo si no lo hemos hecho ya arriba. Para PetrolCan, el usedDelta
+        -- suele ser el nivel visual de carga.
+        if not (itemData.fluid and newItem:getFluidContainer()) then
+            newItem:setUsedDelta(itemData.usedDelta)
+        end
     end
 
     -- 4. Contenedores (Recursivo)
