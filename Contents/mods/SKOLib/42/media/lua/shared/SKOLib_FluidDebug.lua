@@ -1,4 +1,18 @@
 
+local function emptyFluidTarget(target, label)
+    if not target then return end
+    print("[SKO-DEBUG-LAB] Intentando vaciar " .. label .. "...")
+    local fc = nil
+    if target.getFluidContainer then fc = target:getFluidContainer() end
+    if fc then
+        pcall(function() fc:Empty() end)
+        pcall(function() fc:adjustAmount(0.0) end)
+        print("[SKO-DEBUG-LAB] " .. label .. " - Cantidad tras vaciado: " .. tostring(fc:getAmount()))
+        return true
+    end
+    return false
+end
+
 function SKO_Debug_SimulateCycleFromGround()
     local player = getPlayer()
     local sq = player:getCurrentSquare()
@@ -19,112 +33,85 @@ function SKO_Debug_SimulateCycleFromGround()
     end
     
     if not targetItem then
-        player:Say("Debug: No hay PetrolCan en el suelo (mismo cuadro que jugador).")
+        player:Say("Debug: No hay PetrolCan en el suelo.")
         return
     end
     
-    print("[SKO-DEBUG-CYCLE] --- FASE 1: SERIALIZACIÓN ---")
-    print("[SKO-DEBUG-CYCLE] Item Original: " .. targetItem:getFullType())
-    
-    local fc = nil
-    if targetItem.getFluidContainer then
-        fc = targetItem:getFluidContainer()
-    end
-    
-    if not fc then
-        print("[SKO-DEBUG-CYCLE] Buscando en Visual y ModData...")
-        -- Intento 1: Visual (B42 separa lógica y visual)
-        if targetItem.getVisual then
-            local vis = targetItem:getVisual()
-            if vis and vis.getFluidContainer then
-                fc = vis:getFluidContainer()
-                if fc then print("[SKO-DEBUG-CYCLE] ¡Encontrado vía getVisual()!") end
-            end
-        end
-        
-        -- Intento 2: Ver si el dato está en ModData (raro pero posible)
-        local md = targetItem:getModData()
-        if md then
-            print("[SKO-DEBUG-CYCLE] Contenido del ModData del item del suelo:")
-            for k,v in pairs(md) do
-                print("  - " .. tostring(k) .. ": " .. tostring(v))
-            end
-        end
-    end
-    
-    if not fc then
-        -- ÚLTIMA ESPERANZA: El WorldObject mismo podría tener el componente
-        print("[SKO-DEBUG-CYCLE] ¿El WorldObject tiene el contenedor?")
-        if targetWorldObj.getFluidContainer then
-            fc = targetWorldObj:getFluidContainer()
-            if fc then print("[SKO-DEBUG-CYCLE] ¡Encontrado en el WorldObject!") end
-        end
+    -- SERIALIZAR (Con la lógica de WorldObject que descubrimos)
+    local fcSource = targetItem:getFluidContainer() or (targetWorldObj.getFluidContainer and targetWorldObj:getFluidContainer())
+    if not fcSource then
+        print("[SKO-DEBUG-LAB] ERROR: No se detecta fluido ni en item ni en worldobj.")
+        return
     end
 
-    if not fc then
-        print("[SKO-DEBUG-CYCLE] ERROR FATAL: No se encuentra FluidContainer por ningún método conocido.")
-        return
-    end
-    
-    local originalAmount = fc:getAmount()
+    local originalAmount = fcSource:getAmount()
     local originalType = ""
-    if type(fc.getContainerType) == "function" then
-        originalType = fc:getContainerType()
-    elseif not fc:isEmpty() and fc:getPrimaryFluid() then
-        originalType = fc:getPrimaryFluid():getFluidTypeString()
+    if type(fcSource.getContainerType) == "function" then
+        originalType = fcSource:getContainerType()
+    elseif not fcSource:isEmpty() and fcSource:getPrimaryFluid() then
+        originalType = fcSource:getPrimaryFluid():getFluidTypeString()
     end
-    
-    print("[SKO-DEBUG-CYCLE] Amount Original: " .. tostring(originalAmount))
-    print("[SKO-DEBUG-CYCLE] Type Original: " .. tostring(originalType))
-    print("[SKO-DEBUG-CYCLE] Capacity Original: " .. tostring(fc:getCapacity()))
-    
-    -- Serializar usando la lógica de SKOLib
-    local data = SKOLib.Serializer.serializeItemData(targetItem)
-    print("[SKO-DEBUG-CYCLE] DATOS EN TABLA (data.fluid):")
-    if data.fluid then
-        for k,v in pairs(data.fluid) do
-            print("  - " .. tostring(k) .. ": " .. tostring(v))
-        end
-    else
-        print("  - ERROR: No se generó data.fluid")
-    end
-    
-    -- 2. Eliminar el item original
-    print("[SKO-DEBUG-CYCLE] --- FASE 2: ELIMINACIÓN ---")
+
+    print("[SKO-DEBUG-LAB] --- FASE 1: CAPTURA ---")
+    print("[SKO-DEBUG-LAB] Capturado de " .. (targetItem:getFluidContainer() and "ITEM" or "WORLDOBJ") .. ": " .. tostring(originalAmount) .. "L")
+
+    -- SIMULAR TABLA
+    local data = { 
+        fullType = "Base.PetrolCan", 
+        fluid = { amount = originalAmount, type = originalType, capacity = fcSource:getCapacity() } 
+    }
+
+    -- 2. ELIMINAR ORIGINAL
     sq:transmitRemoveItemFromSquare(targetWorldObj)
     sq:removeWorldObject(targetWorldObj)
     
-    -- 3. Simular descarga (Deserialización)
-    print("[SKO-DEBUG-CYCLE] --- FASE 3: DESERIALIZACIÓN (RECREACIÓN) ---")
-    local newItem = SKOLib.Serializer.deserializeItemData(data)
-    if not newItem then
-        print("[SKO-DEBUG-CYCLE] ERROR: No se pudo recrear el item.")
-        return
-    end
-    
-    print("[SKO-DEBUG-CYCLE] Item Recreado (Pre-restoration Amount): " .. tostring(newItem:getFluidContainer():getAmount()))
-    
-    -- 4. Simular Add al suelo
+    -- 3. RECREAR Y AÑADIR (AQUÍ EMPIEZA EL TEST DE TIMING)
+    print("[SKO-DEBUG-LAB] --- FASE 2: RECREACIÓN ---")
+    local newItem = instanceItem("Base.PetrolCan")
     local newWorldObj = sq:AddWorldInventoryItem(newItem, 0.5, 0.5, 0)
-    print("[SKO-DEBUG-CYCLE] Item añadido al suelo.")
-    
-    -- 5. Aplicar Restauración Diferida
-    print("[SKO-DEBUG-CYCLE] --- FASE 4: RESTAURACIÓN DIFERIDA ---")
-    SKOLib.Serializer.applyDeferredRestoration(newItem)
-    
-    -- Si es un WorldObject, el item dentro podría ser diferente
-    if newWorldObj and newWorldObj:getItem() then
-        print("[SKO-DEBUG-CYCLE] Aplicando restauración al item del WorldObject...")
-        SKOLib.Serializer.applyDeferredRestoration(newWorldObj:getItem())
+    print("[SKO-DEBUG-LAB] Item puesto en el suelo. Empieza secuencia de vaciado agresivo...")
+
+    -- TEST 1: Vaciado Instantáneo
+    emptyFluidTarget(newItem, "Item (Instant)")
+    emptyFluidTarget(newWorldObj, "WorldObj (Instant)")
+    newItem:syncItemFields()
+
+    -- TEST 2: Vaciado diferido (DENTRO DE 1 SEGUNDO REAL)
+    -- Usamos un OnTick temporal para simular el delay que necesita la B42
+    local ticks = 0
+    local function onTestTick()
+        ticks = ticks + 1
+        if ticks == 60 then -- Aproximadamente 1 segundo después
+            print("[SKO-DEBUG-LAB] --- FASE 3: VACIADO DIFERIDO (DELAY 1s) ---")
+            
+            -- Re-capturar el WorldObject del suelo (por si cambió)
+            local currentWorldObj = nil
+            local worldObjectsNow = sq:getWorldObjects()
+            for i=0, worldObjectsNow:size()-1 do
+                local wo = worldObjectsNow:get(i)
+                if wo and wo:getItem() == newItem then currentWorldObj = wo break end
+            end
+
+            emptyFluidTarget(newItem, "Item (Delayed)")
+            emptyFluidTarget(currentWorldObj, "WorldObj (Delayed)")
+            
+            -- Llenado Parcial (Simulando restauración)
+            if data.fluid.amount > 0 then
+                local fcFinal = (currentWorldObj and currentWorldObj:getFluidContainer()) or newItem:getFluidContainer()
+                if fcFinal then
+                    -- Resolvemos tipo y añadimos
+                    local ft = (FluidType and FluidType.FromNameLower and FluidType.FromNameLower(data.fluid.type)) or Fluid[data.fluid.type]
+                    if ft then
+                        fcFinal:addFluid(ft, data.fluid.amount)
+                        print("[SKO-DEBUG-LAB] Restaurado final: " .. tostring(fcFinal:getAmount()))
+                    end
+                end
+            end
+            
+            newItem:syncItemFields()
+            player:Say("DEBUG LAB: Ciclo diferido completado. Verifica tooltip.")
+            Events.OnTick.Remove(onTestTick)
+        end
     end
-    
-    local finalAmount = newItem:getFluidContainer():getAmount()
-    print("[SKO-DEBUG-CYCLE] --- RESULTADO FINAL ---")
-    print("[SKO-DEBUG-CYCLE] Cantidad Final: " .. tostring(finalAmount))
-    
-    if math.abs(finalAmount - originalAmount) < 0.1 then
-        player:Say("DEBUG: CICLO EXITOSO. Cantidad preservada.")
-    else
-        player:Say("DEBUG: CICLO FALLIDO. Cantidad: " .. tostring(finalAmount))
-    end
+    Events.OnTick.Add(onTestTick)
 end

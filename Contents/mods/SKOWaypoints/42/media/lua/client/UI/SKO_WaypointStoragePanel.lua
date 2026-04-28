@@ -646,24 +646,40 @@ function SKOWaypointStoragePanel:onDownloadItem(itemData, transferAll)
                         local square = player:getCurrentSquare()
                         if square then
                             local worldItem = square:AddWorldInventoryItem(newItem, 0.5, 0.5, 0)
-                            -- BUG FIX B42 SUELO: Para items en el suelo, necesitamos que el item tome 'forma'
-                            -- Aplicamos la restauración diferida
-                            SKOLib.Serializer.applyDeferredRestoration(newItem, worldItem)
                             
-                            -- Refuerzo agresivo: si es un PetrolCan, forzamos el vaciado del WorldObject específicamente
-                            if newItem:getFullType() == "Base.PetrolCan" and worldItem and worldItem.getFluidContainer then
-                                local fc = worldItem:getFluidContainer()
-                                if fc then
-                                    pcall(function() 
-                                        fc:Empty()
-                                        local mData = newItem:getModData()
-                                        if mData.skoRestoreFluid then
-                                            -- Si aún no se ha limpiado, forzamos aquí también
-                                            SKOLib.Serializer.applyDeferredRestoration(newItem, worldItem)
+                            -- BUG FIX B42 SUELO (REFINADO): 
+                            -- La variable 'worldItem' puede quedar obsoleta tras el delay.
+                            -- Buscamos el ítem real en el mundo justo antes de restaurarlo.
+                            local ticks = 0
+                            local function onRestoreTick()
+                                ticks = ticks + 1
+                                if ticks >= 60 then
+                                    local realWorldObj = nil
+                                    local worldObjects = square:getWorldObjects()
+                                    for i=0, worldObjects:size()-1 do
+                                        local wo = worldObjects:get(i)
+                                        if wo and wo:getItem() == newItem then
+                                            realWorldObj = wo
+                                            break
                                         end
-                                    end)
+                                    end
+                                    
+                                    if realWorldObj then
+                                        print("[SKO-STORAGE-DEBUG] Ítem encontrado en el mundo. Restaurando...")
+                                        SKOLib.Serializer.applyDeferredRestoration(newItem, realWorldObj)
+                                    else
+                                        -- Si no lo encuentra en el WorldObject, lo intenta en el ítem
+                                        print("[SKO-STORAGE-DEBUG] No se encontró WorldObject, intentando sobre el ítem directamente.")
+                                        SKOLib.Serializer.applyDeferredRestoration(newItem)
+                                    end
+                                    
+                                    Events.OnTick.Remove(onRestoreTick)
                                 end
                             end
+                            Events.OnTick.Add(onRestoreTick)
+                            
+                            -- Restauración lógica inmediata
+                            SKOLib.Serializer.applyDeferredRestoration(newItem, worldItem)
                         else
                             player:getInventory():AddItem(newItem)
                             SKOLib.Serializer.applyDeferredRestoration(newItem)

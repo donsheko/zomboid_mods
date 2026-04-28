@@ -29,11 +29,18 @@ function SKOLib.Serializer.applyDeferredRestoration(item, worldObj)
             pcall(function() fc:Empty() end)
             
             -- REFUERZO B42 SUELO: Si el WorldObject tiene otro componente interno
-            if worldObj and worldObj.getItem then
-                local itemInWorld = worldObj:getItem()
-                if itemInWorld and itemInWorld.getFluidContainer then
-                    pcall(function() itemInWorld:getFluidContainer():Empty() end)
-                end
+            if worldObj and type(worldObj) == "userdata" and type(worldObj.getItem) == "function" then
+                pcall(function()
+                    local itemInWorld = worldObj:getItem()
+                    if itemInWorld and itemInWorld.getFluidContainer then
+                        local fcInner = itemInWorld:getFluidContainer()
+                        if fcInner then
+                            -- Usamos adjustAmount(0) que es más seguro que indexar Empty directamente
+                            pcall(function() fcInner:adjustAmount(0.0) end)
+                            pcall(function() fcInner:Empty() end)
+                        end
+                    end
+                end)
             end
 
             if fluidData.amount and fluidData.amount > 0 and fluidData.type and fluidData.type ~= "" then
