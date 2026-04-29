@@ -859,9 +859,10 @@ function onAutoUploadUpdate(player)
 
     if #itemsToRemove == 0 then return end
 
-        if ok and serialized then
-            -- BUG FIX B42: Pasar el worldObj para leer fluidos del suelo
-            local ok, serialized = pcall(SKOLib.Serializer.serializeItemData, item, data.worldObj)
+    for _, data in ipairs(itemsToRemove) do
+        local item = data.item
+        -- BUG FIX B42: Pasar el worldObj para leer fluidos del suelo
+        local ok, serialized = pcall(SKOLib.Serializer.serializeItemData, item, data.worldObj)
         
         if ok and serialized then
             local catStr = item:getDisplayCategory()
