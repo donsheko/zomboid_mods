@@ -151,20 +151,34 @@ function SKOLib.Serializer.serializeItemData(item, worldObj)
         local visual = item:getVisual()
         local coveredParts = item:getCoveredParts()
         data.clothing = {
-            wetness = item:getWetness(),
-            dirtyness = item:getDirtyness(),
-            blood = item:getBloodlevel(),
+            wetness = type(item.getWetness) == "function" and item:getWetness() or 0,
+            dirtyness = type(item.getDirtyness) == "function" and item:getDirtyness() or 0,
+            blood = type(item.getBloodlevel) == "function" and item:getBloodlevel() or 0,
             parts = {},
-            tint = { r = visual:getTint():getR(), g = visual:getTint():getG(), b = visual:getTint():getB() }
+            tint = { r = 1, g = 1, b = 1 }
         }
-        for i=0, coveredParts:size()-1 do
-            local part = coveredParts:get(i)
-            local partID = part:toString()
-            data.clothing.parts[partID] = {
-                hole = visual:getHole(part) > 0,
-                blood = item:getBloodlevelForPart(part),
-                patch = item:getPatchType(part) and item:getPatchType(part):getType() or nil
-            }
+        
+        if visual and visual:getTint() then
+            local tint = visual:getTint()
+            if type(tint.getR) == "function" then
+                data.clothing.tint = { r = tint:getR(), g = tint:getG(), b = tint:getB() }
+            elseif tint.r then
+                data.clothing.tint = { r = tint.r, g = tint.g, b = tint.b }
+            end
+        end
+
+        if coveredParts then
+            for i=0, coveredParts:size()-1 do
+                local part = coveredParts:get(i)
+                if part then
+                    local partID = part:toString()
+                    data.clothing.parts[partID] = {
+                        hole = visual and visual:getHole(part) > 0 or false,
+                        blood = type(item.getBloodlevelForPart) == "function" and item:getBloodlevelForPart(part) or 0,
+                        patch = (type(item.getPatchType) == "function" and item:getPatchType(part) and item:getPatchType(part):getType()) or nil
+                    }
+                end
+            end
         end
     end
 
@@ -277,15 +291,23 @@ function SKOLib.Serializer.deserializeItemData(itemData)
 
     if itemData.clothing and instanceof(newItem, "Clothing") then
         local c = itemData.clothing
-        newItem:setWetness(c.wetness or 0)
-        newItem:setDirtyness(c.dirtyness or 0)
-        newItem:setBloodLevel(c.blood or 0)
-        if c.tint then newItem:getVisual():setTint(ImmutableColor.new(c.tint.r, c.tint.g, c.tint.b, 1)) end
+        if type(newItem.setWetness) == "function" then newItem:setWetness(c.wetness or 0) end
+        if type(newItem.setDirtyness) == "function" then newItem:setDirtyness(c.dirtyness or 0) end
+        if type(newItem.setBloodLevel) == "function" then newItem:setBloodLevel(c.blood or 0) end
+        
+        if c.tint and newItem:getVisual() then 
+            local visual = newItem:getVisual()
+            pcall(function() visual:setTint(ImmutableColor.new(c.tint.r, c.tint.g, c.tint.b, 1)) end)
+        end
+
         for partID, pData in pairs(c.parts or {}) do
             local part = BloodBodyPartType.FromString(partID)
             if part then
-                if pData.hole then newItem:getVisual():setHole(part) end
-                newItem:setBlood(part, pData.blood or 0)
+                if pData.hole and newItem:getVisual() then 
+                    local visual = newItem:getVisual()
+                    pcall(function() visual:setHole(part) end)
+                end
+                if type(newItem.setBlood) == "function" then newItem:setBlood(part, pData.blood or 0) end
             end
         end
     end
