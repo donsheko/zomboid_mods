@@ -1,10 +1,46 @@
 if not SKO_CapsuleClient then SKO_CapsuleClient = {} end
 SKO_CapsuleClient.DEBUG = false
 
+SKO_CapsuleClient.CAPSULE_TYPE = "SKOCapsule.ContenedorVehiculos"
+-- Guardas de idempotencia: evitan doble encapsulado / doble restauración
+SKO_CapsuleClient.storeInProgress = false
+SKO_CapsuleClient.restoreInProgress = false
+
 local function debugLog(msg)
     if SKO_CapsuleClient.DEBUG then
         print("[SKOCapsule-Client] " .. tostring(msg))
     end
+end
+
+-- Consume exactamente 1 cápsula del inventario del jugador (SP / uso local).
+-- Devuelve true solo si existía y fue eliminada correctamente.
+function SKO_CapsuleClient.consumeCapsule(player)
+    if not player then return false end
+    local inv = player:getInventory()
+    local capsule = inv:getFirstTypeRecurse(SKO_CapsuleClient.CAPSULE_TYPE)
+    if not capsule then return false end
+    local ok = pcall(function() inv:Remove(capsule) end)
+    if not ok then
+        print("[SKOCapsule-Client] Error al consumir capsula del inventario.")
+        return false
+    end
+    debugLog("Capsula consumida del inventario.")
+    return true
+end
+
+-- Crea y añade exactamente 1 cápsula al inventario del jugador (SP / uso local).
+-- Devuelve el item creado o nil si falló.
+function SKO_CapsuleClient.giveCapsule(player)
+    if not player then return nil end
+    local ok, item = pcall(function()
+        return player:getInventory():AddItem(SKO_CapsuleClient.CAPSULE_TYPE)
+    end)
+    if not ok or not item then
+        print("[SKOCapsule-Client] Error al crear capsula para el jugador.")
+        return nil
+    end
+    debugLog("Capsula entregada al inventario.")
+    return item
 end
 
 -- Global helpers
@@ -45,141 +81,196 @@ function SKO_createItem(itemType)
 end
 
 -- MAIN LOGIC
+
+-- Serialización protegida del vehículo.
+-- Devuelve la tabla completa de datos, o nil si falló la serialización.
+function SKO_CapsuleClient.serializeVehicle(vehicle)
+    if not vehicle then return nil end
+    local ok, vehicleData = pcall(function()
+        local id = vehicle:getScript():getName() .. vehicle:getID() .. "_" .. os.time()
+        
+        local capturedSkinIndex = 0
+        if vehicle.getSkinIndex then
+            capturedSkinIndex = vehicle:getSkinIndex()
+        else
+            local visual = SKO_getVehicleVisual(vehicle)
+            if visual and visual.getSkinIndex then
+                pcall(function() capturedSkinIndex = visual:getSkinIndex() end)
+            end
+        end
+        debugLog("SkinIndex capturado: " .. tostring(capturedSkinIndex) .. " / " .. tostring(vehicle:getSkinCount()))
+
+        local vehicleData = {
+            id = id,
+            name = vehicle:getScript():getName(),
+            parts = {},
+            inventory = {},
+            fuelTanks = {},
+            hasKey = vehicle:isKeysInIgnition(),
+            hotwired = vehicle:isHotwired(),
+            keyId = vehicle:getKeyId(),
+            trunkLocked = vehicle:isTrunkLocked(),
+            batteryCharge = 0,
+            engineQuality = vehicle:getEngineQuality(),
+            engineLoudness = vehicle:getEngineLoudness(),
+            enginePower = vehicle:getEnginePower(),
+            rust = vehicle:getRust(),
+            color = { h = vehicle:getColorHue(), s = vehicle:getColorSaturation(), v = vehicle:getColorValue() },
+            colorIndex = (type(vehicle.getColorIndex) == "function") and vehicle:getColorIndex() or nil,
+            skinIndex = capturedSkinIndex,
+        }
+
+        -- B42 Color Refuerzo: RGB + Visual Tint
+        local visual = SKO_getVehicleVisual(vehicle)
+        if visual then
+            pcall(function()
+                vehicleData.visualData = {
+                    hue = visual:getHue(),
+                    saturation = visual:getSaturation(),
+                    value = visual:getValue()
+                }
+                if visual.getTint then
+                    local t = visual:getTint()
+                    vehicleData.visualData.tint = { r = t:getR(), g = t:getG(), b = t:getB() }
+                end
+            end)
+        end
+
+        -- B42 Color Refuerzo: RGB
+        if vehicle.getColor and type(vehicle.getColor) == "function" then
+            pcall(function()
+                local c = vehicle:getColor()
+                if c then
+                    vehicleData.colorRGB = { r = c:getR(), g = c:getG(), b = c:getB() }
+                end
+            end)
+        end
+
+        -- Log ModData keys for debugging
+        local mData = vehicle:getModData()
+        if mData then
+            local keys = ""
+            pcall(function()
+                for k, v in pairs(mData) do keys = keys .. tostring(k) .. ", " end
+            end)
+            debugLog("Vehicle ModData keys: " .. keys)
+        end
+
+        vehicleData.doors = {}
+        vehicleData.windows = {}
+        vehicleData.modData = SKO_copyTable(vehicle:getModData())
+        
+        debugLog("Color capturado: H=" .. tostring(vehicleData.color.h) .. " S=" .. tostring(vehicleData.color.s) .. " V=" .. tostring(vehicleData.color.v) .. " Index=" .. tostring(vehicleData.colorIndex))
+
+        for i = 1, vehicle:getPartCount() do
+            local part = vehicle:getPartByIndex(i - 1)
+            if part then
+                local partId = part:getId()
+                local invItem = part:getInventoryItem()
+                
+                vehicleData.parts[partId] = {
+                    condition = part:getCondition(),
+                    hasItem = invItem ~= nil,
+                    itemData = invItem and SKOLib.Serializer.serializeItemData(invItem) or nil,
+                    modData = SKO_copyTable(part:getModData())
+                }
+
+                -- Items inside (Trunk, Seats)
+                local container = part:getItemContainer()
+                if container then
+                    local capacity = container:getCapacity()
+                    local inventario = { capacity = capacity, items = {} }
+                    for j = 0, container:getItems():size() - 1 do
+                        local it = container:getItems():get(j)
+                        if it then table.insert(inventario.items, SKOLib.Serializer.serializeItemData(it)) end
+                    end
+                    vehicleData.inventory[partId] = inventario
+                end
+                
+                -- Fluids (Fuel, Tire Air)
+                if part:isContainer() and part:getContainerContentType() then
+                    local cap = part:getContainerCapacity()
+                    if cap > 0 then
+                        vehicleData.fuelTanks[partId] = {
+                            fuel = part:getContainerContentAmount(),
+                            capacity = cap,
+                            type = part:getContainerContentType()
+                        }
+                    end
+                end
+
+                -- Battery
+                if partId == "Battery" and invItem then 
+                    if type(invItem.getCurrentUsesFloat) == "function" then vehicleData.batteryCharge = invItem:getCurrentUsesFloat()
+                    elseif type(invItem.getUsedDelta) == "function" then vehicleData.batteryCharge = 1 - invItem:getUsedDelta() end
+                end
+                
+                local door = part:getDoor()
+                if door then vehicleData.doors[partId] = { isOpen = door:isOpen(), isLocked = door:isLocked() } end
+                local window = part:getWindow()
+                if window then vehicleData.windows[partId] = { isOpen = window:isOpen() } end
+            end
+        end
+
+        return vehicleData
+    end)
+
+    if not ok or not vehicleData then
+        print("[SKOCapsule-Client] ERROR de serialización del vehiculo: " .. tostring(vehicleData))
+        return nil
+    end
+    return vehicleData
+end
+
 function storeVehicleInContainer(vehicle, itemEquiped)
     debugLog("Iniciando encapsulado de vehiculo: " .. tostring(vehicle:getScript():getName()))
+    
+    -- Guarda anti doble-click / doble encapsulado
+    if SKO_CapsuleClient.storeInProgress then
+        debugLog("Encapsulado ya en curso. Ignorando llamada duplicada.")
+        return
+    end
+    SKO_CapsuleClient.storeInProgress = true
+
+    -- 1) Serialización protegida: si falla, NO consumimos cápsula ni eliminamos el vehículo.
+    local vehicleData = SKO_CapsuleClient.serializeVehicle(vehicle)
+    if not vehicleData then
+        getPlayer():Say("No se pudo encapsular el vehiculo (error de datos).")
+        SKO_CapsuleClient.storeInProgress = false
+        return
+    end
+
+    -- 2) Guardar en la nube local (client-side; en MP la entrada vive en el cliente).
     local storedVehicles = SKO_getCapsuleData()
-    local id = vehicle:getScript():getName() .. vehicle:getID() .. "_" .. os.time()
-    
-    local capturedSkinIndex = 0
-    if vehicle.getSkinIndex then
-        capturedSkinIndex = vehicle:getSkinIndex()
-    else
-        local visual = SKO_getVehicleVisual(vehicle)
-        if visual and visual.getSkinIndex then
-            pcall(function() capturedSkinIndex = visual:getSkinIndex() end)
-        end
-    end
-    debugLog("SkinIndex capturado: " .. tostring(capturedSkinIndex) .. " / " .. tostring(vehicle:getSkinCount()))
-
-    local vehicleData = {
-        id = id,
-        name = vehicle:getScript():getName(),
-        parts = {},
-        inventory = {},
-        fuelTanks = {},
-        hasKey = vehicle:isKeysInIgnition(),
-        hotwired = vehicle:isHotwired(),
-        keyId = vehicle:getKeyId(),
-        trunkLocked = vehicle:isTrunkLocked(),
-        batteryCharge = 0,
-        engineQuality = vehicle:getEngineQuality(),
-        engineLoudness = vehicle:getEngineLoudness(),
-        enginePower = vehicle:getEnginePower(),
-        rust = vehicle:getRust(),
-        color = { h = vehicle:getColorHue(), s = vehicle:getColorSaturation(), v = vehicle:getColorValue() },
-        colorIndex = (type(vehicle.getColorIndex) == "function") and vehicle:getColorIndex() or nil,
-        skinIndex = capturedSkinIndex,
-    }
-
-    -- B42 Color Refuerzo: RGB + Visual Tint
-    local visual = SKO_getVehicleVisual(vehicle)
-    if visual then
-        pcall(function()
-            vehicleData.visualData = {
-                hue = visual:getHue(),
-                saturation = visual:getSaturation(),
-                value = visual:getValue()
-            }
-            if visual.getTint then
-                local t = visual:getTint()
-                vehicleData.visualData.tint = { r = t:getR(), g = t:getG(), b = t:getB() }
-            end
-        end)
-    end
-
-    -- B42 Color Refuerzo: RGB
-    if vehicle.getColor and type(vehicle.getColor) == "function" then
-        pcall(function()
-            local c = vehicle:getColor()
-            if c then
-                vehicleData.colorRGB = { r = c:getR(), g = c:getG(), b = c:getB() }
-            end
-        end)
-    end
-
-    -- Log ModData keys for debugging
-    local mData = vehicle:getModData()
-    if mData then
-        local keys = ""
-        pcall(function()
-            for k, v in pairs(mData) do keys = keys .. tostring(k) .. ", " end
-        end)
-        debugLog("Vehicle ModData keys: " .. keys)
-    end
-
-    vehicleData.doors = {}
-    vehicleData.windows = {}
-    vehicleData.modData = SKO_copyTable(vehicle:getModData())
-    
-    debugLog("Color capturado: H=" .. tostring(vehicleData.color.h) .. " S=" .. tostring(vehicleData.color.s) .. " V=" .. tostring(vehicleData.color.v) .. " Index=" .. tostring(vehicleData.colorIndex))
-
-    for i = 1, vehicle:getPartCount() do
-        local part = vehicle:getPartByIndex(i - 1)
-        if part then
-            local partId = part:getId()
-            local invItem = part:getInventoryItem()
-            
-            vehicleData.parts[partId] = {
-                condition = part:getCondition(),
-                hasItem = invItem ~= nil,
-                itemData = invItem and SKOLib.Serializer.serializeItemData(invItem) or nil,
-                modData = SKO_copyTable(part:getModData())
-            }
-
-            -- Items inside (Trunk, Seats)
-            local container = part:getItemContainer()
-            if container then
-                local capacity = container:getCapacity()
-                local inventario = { capacity = capacity, items = {} }
-                for j = 0, container:getItems():size() - 1 do
-                    local it = container:getItems():get(j)
-                    if it then table.insert(inventario.items, SKOLib.Serializer.serializeItemData(it)) end
-                end
-                vehicleData.inventory[partId] = inventario
-            end
-            
-            -- Fluids (Fuel, Tire Air)
-            if part:isContainer() and part:getContainerContentType() then
-                local cap = part:getContainerCapacity()
-                if cap > 0 then
-                    vehicleData.fuelTanks[partId] = {
-                        fuel = part:getContainerContentAmount(),
-                        capacity = cap,
-                        type = part:getContainerContentType()
-                    }
-                end
-            end
-
-            -- Battery
-            if partId == "Battery" and invItem then 
-                if type(invItem.getCurrentUsesFloat) == "function" then vehicleData.batteryCharge = invItem:getCurrentUsesFloat()
-                elseif type(invItem.getUsedDelta) == "function" then vehicleData.batteryCharge = 1 - invItem:getUsedDelta() end
-            end
-            
-            local door = part:getDoor()
-            if door then vehicleData.doors[partId] = { isOpen = door:isOpen(), isLocked = door:isLocked() } end
-            local window = part:getWindow()
-            if window then vehicleData.windows[partId] = { isOpen = window:isOpen() } end
-        end
-    end
-
-    storedVehicles[id] = vehicleData
+    storedVehicles[vehicleData.id] = vehicleData
     SKO_setCapsuleData(storedVehicles)
-    
+    debugLog("Vehiculo guardado en la nube local: " .. tostring(vehicleData.id))
+
+    -- 3) Eliminación del vehículo + consumo de cápsula (solo tras serialización OK).
     if isClient() then
-        sendClientCommand(getPlayer(), "SKO_Capsule", "removeVehicle", { vehicleId = vehicle:getId() })
+        -- MP: el servidor valida la cápsula, elimina el vehículo y consume de forma
+        -- autoritativa. Confirma al cliente con "vehicleRemoved" para finalizar.
+        sendClientCommand(getPlayer(), "SKO_Capsule", "removeVehicle", {
+            vehicleId = vehicle:getId(),
+            dataId = vehicleData.id
+        })
+        debugLog("Comando removeVehicle enviado al servidor (MP).")
     else
-        vehicle:permanentlyRemove()
+        -- SP: eliminación local y consumo local.
+        local removedOk = pcall(function() vehicle:permanentlyRemove() end)
+        if removedOk then
+            local consumed = SKO_CapsuleClient.consumeCapsule(getPlayer())
+            if not consumed then
+                print("[SKOCapsule-Client] SP: el vehiculo se elimino pero no se encontro capsula para consumir.")
+            end
+        else
+            -- Fallo al eliminar: revertimos la entrada para no perder el vehículo.
+            print("[SKOCapsule-Client] SP: fallo al eliminar el vehiculo. Revirtiendo entrada de nube.")
+            storedVehicles[vehicleData.id] = nil
+            SKO_setCapsuleData(storedVehicles)
+            getPlayer():Say("No se pudo encapsular el vehiculo.")
+        end
+        SKO_CapsuleClient.storeInProgress = false
     end
 end
 
@@ -344,32 +435,61 @@ function restoreVehicle(vehicleData, itemEquiped)
     local sq = getCell():getGridSquare(x, y, z)
     if z > 0 or not sq or sq:getRoom() or not sq:isOutside() then player:Say("Espacio bloqueado.") return end
 
+    -- Guarda anti doble-click / doble restauración
+    if SKO_CapsuleClient.restoreInProgress then
+        debugLog("Restauración ya en curso. Ignorando llamada duplicada.")
+        return
+    end
+    SKO_CapsuleClient.restoreInProgress = true
+
     if isClient() then
+        -- MP: el servidor spawnea, aplica los datos y devuelve la cápsula al confirmar.
+        -- La entrada de la nube se retira al recibir "doRestore" (confirmación de éxito).
         sendClientCommand(getPlayer(), "SKO_Capsule", "spawnVehicle", { 
             name = vehicleData.name, dir = player:getDir(), status = 0, 
-            x = x, y = y, z = z, data = vehicleData, itemId = itemEquiped:getID() 
+            x = x, y = y, z = z, data = vehicleData
         })
         return
     end
 
+    -- SP: spawn local + restauración diferida (60 ticks)
     local vehicle = addVehicleDebug(vehicleData.name, player:getDir(), 0, sq)
     if vehicle then
         debugLog("Vehiculo spawneado (SP). Iniciando restauración diferida (60 ticks)...")
-        
-        -- Restauración diferida para SP (mismo principio que en servidor MP)
         local ticks = 0
         local function onRestoreTick()
             ticks = ticks + 1
             if ticks >= 60 then
-                SKO_applyVehicleData(vehicle, vehicleData)
-                local stored = SKO_getCapsuleData()
-                stored[vehicleData.id] = nil
-                SKO_setCapsuleData(stored)
                 Events.OnTick.Remove(onRestoreTick)
-                debugLog("Restauración diferida (SP) completada.")
+                SKO_CapsuleClient.restoreInProgress = false
+                
+                local stored = SKO_getCapsuleData()
+                if vehicle and stored[vehicleData.id] then
+                    local appliedOk = pcall(function() SKO_applyVehicleData(vehicle, vehicleData) end)
+                    if appliedOk then
+                        -- Aplicación confirmada: retiramos la entrada y devolvemos la cápsula
+                        stored[vehicleData.id] = nil
+                        SKO_setCapsuleData(stored)
+                        local given = SKO_CapsuleClient.giveCapsule(player)
+                        debugLog("Restauración diferida (SP) completada. Cápsula devuelta: " .. tostring(given ~= nil))
+                    else
+                        -- Fallo de aplicación: conservar la entrada en la nube, no devolver
+                        -- cápsula y eliminar el vehículo a medio restaurar (evita duplicados)
+                        pcall(function() vehicle:permanentlyRemove() end)
+                        player:Say("No se pudo restaurar el vehiculo (aplicación de datos).")
+                        print("[SKOCapsule-Client] SP: error aplicando datos del vehiculo.")
+                    end
+                else
+                    player:Say("No se pudo restaurar el vehiculo (spawn perdido).")
+                    print("[SKOCapsule-Client] SP: vehiculo no disponible o entrada ya retirada.")
+                end
+                debugLog("Restauración diferida (SP) finalizada.")
             end
         end
         Events.OnTick.Add(onRestoreTick)
+    else
+        SKO_CapsuleClient.restoreInProgress = false
+        player:Say("No se pudo restaurar el vehiculo (spawn fallido).")
     end
 end
 
@@ -405,7 +525,7 @@ end
 -- UTILS
 SKO_CapsuleClient.getCapsuleFromInventory = function(player)
     local inv = player:getInventory()
-    return inv:getFirstTypeRecurse("SKOCapsule.ContenedorVehiculos")
+    return inv:getFirstTypeRecurse(SKO_CapsuleClient.CAPSULE_TYPE)
 end
 
 SKO_CapsuleClient.openCloudUI = function()
@@ -417,12 +537,8 @@ SKO_CapsuleClient.openCloudUI = function()
         return
     end
 
-    local capsule = SKO_CapsuleClient.getCapsuleFromInventory(player)
-    if not capsule then
-        player:Say("Necesito tener la Capsula en mi inventario para acceder a la Red Cloud.")
-        return
-    end
-
+    -- Restaurar NO exige tener una cápsula previa: la nube se puede abrir siempre.
+    -- (La SUBIDA sí exige cápsula; se valida en el menú contextual y en el servidor.)
     local ui = SKO_CapsuleCloudUI:new(200, 200, 800, 500)
     ui:initialise()
     ui:addToUIManager()
@@ -457,14 +573,45 @@ function SKO_CapsuleClient.OnKeyPressed(key)
 end
 
 function SKO_CapsuleClient.OnServerCommand(module, command, args)
-    if module == "SKO_Capsule" and command == "doRestore" then
-        local vehicle = getVehicleById(tonumber(tostring(args.vehicleIdStr)))
-        if vehicle then
-            SKO_applyVehicleData(vehicle, args.data)
+    if module ~= "SKO_Capsule" then return end
+
+    if command == "doRestore" then
+        -- El servidor solo envía doRestore tras spawn + aplicación EXITOSOS.
+        -- La cápsula ya fue devuelta server-side; aquí retiramos la entrada de la nube.
+        SKO_CapsuleClient.restoreInProgress = false
+        if args and args.data and args.data.id then
+            local vehicle = getVehicleById(tonumber(tostring(args.vehicleIdStr)))
+            if vehicle then
+                SKO_applyVehicleData(vehicle, args.data)
+            else
+                debugLog("doRestore: vehículo no encontrado localmente (posible desync); se retira la entrada igualmente.")
+            end
             local stored = SKO_getCapsuleData()
             stored[args.data.id] = nil
             SKO_setCapsuleData(stored)
+            debugLog("doRestore: entrada de nube retirada: " .. tostring(args.data.id))
         end
+    elseif command == "vehicleRemoved" then
+        -- Confirmación del servidor sobre la subida (MP).
+        SKO_CapsuleClient.storeInProgress = false
+        if args and args.ok == false and args.dataId then
+            -- Fallo al eliminar/consumir: revertimos la entrada para no perder el vehículo.
+            local stored = SKO_getCapsuleData()
+            if stored[args.dataId] then
+                stored[args.dataId] = nil
+                SKO_setCapsuleData(stored)
+            end
+            getPlayer():Say("No se pudo subir el vehiculo a la nube.")
+            debugLog("vehicleRemoved ok=false: entrada revertida: " .. tostring(args.dataId))
+        elseif args and args.ok == true then
+            debugLog("vehicleRemoved ok=true: vehículo eliminado y cápsula consumida por el servidor.")
+        end
+    elseif command == "restoreFailed" then
+        -- Fallo de spawn o aplicación en el servidor: no se devolvió cápsula y la
+        -- entrada de la nube se conserva para reintentar.
+        SKO_CapsuleClient.restoreInProgress = false
+        getPlayer():Say("No se pudo restaurar el vehiculo desde la nube.")
+        debugLog("restoreFailed recibido: la entrada de nube se conserva.")
     end
 end
 

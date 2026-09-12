@@ -1,10 +1,47 @@
 if not SKO_Capsule then SKO_Capsule = {} end
 SKO_Capsule.DEBUG = false
 
+SKO_Capsule.CAPSULE_TYPE = "SKOCapsule.ContenedorVehiculos"
+-- Idempotencia MP: solo una restauración pendiente por jugador
+SKO_Capsule.pendingRestore = {}
+
 local function debugLog(msg)
     if SKO_Capsule.DEBUG then
         print("[SKOCapsule-Server] " .. tostring(msg))
     end
+end
+
+-- Consume exactamente 1 cápsula del inventario del jugador (autoritativo server-side).
+-- Devuelve true solo si existía y fue eliminada correctamente.
+function SKO_Capsule.consumeCapsule(player)
+    if not player then return false end
+    local capsule = player:getInventory():getFirstTypeRecurse(SKO_Capsule.CAPSULE_TYPE)
+    if not capsule then
+        debugLog("Consumo de cápsula: no encontrada en el inventario del jugador.")
+        return false
+    end
+    local ok = pcall(function() player:getInventory():Remove(capsule) end)
+    if not ok then
+        print("[SKOCapsule-Server] Error al consumir cápsula del inventario del jugador.")
+        return false
+    end
+    debugLog("Cápsula consumida del inventario del jugador.")
+    return true
+end
+
+-- Crea y añade exactamente 1 cápsula al inventario del jugador (autoritativo server-side).
+-- Devuelve el item creado o nil si falló.
+function SKO_Capsule.giveCapsule(player)
+    if not player then return nil end
+    local ok, item = pcall(function()
+        return player:getInventory():AddItem(SKO_Capsule.CAPSULE_TYPE)
+    end)
+    if not ok or not item then
+        print("[SKOCapsule-Server] Error al crear cápsula para el jugador.")
+        return nil
+    end
+    debugLog("Cápsula entregada al inventario del jugador.")
+    return item
 end
 
 function SKO_serverCreateItem(itemType)
@@ -192,34 +229,92 @@ function restoreItemsToContainer(container, items, square)
 end
 
 SKO_Capsule.OnClientCommand = function(module, command, player, args)
-    if module == "SKO_Capsule" then
-        if command == "removeVehicle" then
-            local vehicle = getVehicleById(args.vehicleId)
-            if vehicle then vehicle:permanentlyRemove() end
-        elseif command == "spawnVehicle" then
-            local sq = getCell():getGridSquare(args.x, args.y, args.z)
-            local vehicle = addVehicleDebug(args.name, args.dir, 0, sq)
-            if vehicle then
-                print("[SKOCapsule-Server] Vehiculo spawneado: " .. tostring(vehicle:getId()) .. ". Iniciando restauración diferida (60 ticks)...")
-                
-                -- Restauración diferida reforzada (60 ticks = ~1s)
-                local ticks = 0
-                local function onSpawnTick()
-                    ticks = ticks + 1
-                    if ticks >= 60 then
-                        SKO_ServerApplyVehicleData(vehicle, args.data)
-                        sendServerCommand(player, "SKO_Capsule", "doRestore", { 
-                            vehicleIdStr = tostring(vehicle:getId()), 
-                            data = args.data, 
-                            itemId = args.itemId 
-                        })
-                        Events.OnTick.Remove(onSpawnTick)
-                        print("[SKOCapsule-Server] Restauración diferida completada para ID: " .. tostring(vehicle:getId()))
-                    end
+    if module ~= "SKO_Capsule" then return end
+
+    if command == "removeVehicle" then
+        -- SUBIDA (MP): el servidor valida la cápsula, elimina el vehículo y consume
+        -- de forma autoritativa. Solo se consume si la eliminación fue exitosa.
+        local vehicleId = args and args.vehicleId
+        local dataId = args and args.dataId or nil
+        local vehicle = getVehicleById(vehicleId)
+
+        if not vehicle then
+            debugLog("removeVehicle: vehículo no encontrado. No se consume cápsula.")
+            sendServerCommand(player, "SKO_Capsule", "vehicleRemoved", { ok = false, dataId = dataId })
+            return
+        end
+
+        -- El jugador debe tener cápsula ANTES de eliminar el vehículo (evita pérdida sin compensación)
+        local capsule = player:getInventory():getFirstTypeRecurse(SKO_Capsule.CAPSULE_TYPE)
+        if not capsule then
+            debugLog("removeVehicle: jugador sin cápsula. No se elimina el vehículo.")
+            sendServerCommand(player, "SKO_Capsule", "vehicleRemoved", { ok = false, dataId = dataId })
+            return
+        end
+
+        local removedOk = pcall(function() vehicle:permanentlyRemove() end)
+        if removedOk then
+            local consumed = SKO_Capsule.consumeCapsule(player)
+            print("[SKOCapsule-Server] Vehiculo " .. tostring(vehicleId) .. " eliminado. Cápsula consumida: " .. tostring(consumed))
+            sendServerCommand(player, "SKO_Capsule", "vehicleRemoved", { ok = true, dataId = dataId })
+        else
+            print("[SKOCapsule-Server] Error al eliminar el vehículo. No se consume cápsula.")
+            sendServerCommand(player, "SKO_Capsule", "vehicleRemoved", { ok = false, dataId = dataId })
+        end
+
+    elseif command == "spawnVehicle" then
+        -- RESTAURACIÓN (MP): spawn + aplicación de datos; la cápsula se devuelve SOLO
+        -- tras confirmar spawn y aplicación exitosos. El cliente retira la entrada al
+        -- recibir "doRestore"; en caso de fallo recibe "restoreFailed" y la conserva.
+        if not args or not args.data or not args.data.id or not args.name then
+            debugLog("spawnVehicle ignorado: argumentos incompletos.")
+            sendServerCommand(player, "SKO_Capsule", "restoreFailed", { ok = false })
+            return
+        end
+        local username = player:getUsername()
+        if SKO_Capsule.pendingRestore[username] then
+            debugLog("spawnVehicle ignorado: restauración ya en curso para " .. tostring(username))
+            return
+        end
+        SKO_Capsule.pendingRestore[username] = true
+
+        local sq = getCell():getGridSquare(args.x, args.y, args.z)
+        local vehicle = addVehicleDebug(args.name, args.dir, 0, sq)
+        if not vehicle then
+            SKO_Capsule.pendingRestore[username] = nil
+            sendServerCommand(player, "SKO_Capsule", "restoreFailed", { ok = false })
+            print("[SKOCapsule-Server] spawnVehicle fallido: no se pudo crear el vehículo.")
+            return
+        end
+
+        print("[SKOCapsule-Server] Vehiculo spawneado: " .. tostring(vehicle:getId()) .. ". Iniciando restauración diferida (60 ticks)...")
+        
+        local ticks = 0
+        local function onSpawnTick()
+            ticks = ticks + 1
+            if ticks >= 60 then
+                Events.OnTick.Remove(onSpawnTick)
+                SKO_Capsule.pendingRestore[username] = nil
+
+                local appliedOk = pcall(function() SKO_ServerApplyVehicleData(vehicle, args.data) end)
+                if appliedOk and vehicle then
+                    -- Confirmación de spawn + aplicación: devolvemos la cápsula
+                    local given = SKO_Capsule.giveCapsule(player)
+                    print("[SKOCapsule-Server] Restauración diferida completada para ID: " .. tostring(vehicle:getId()) .. ". Cápsula devuelta: " .. tostring(given ~= nil))
+                    sendServerCommand(player, "SKO_Capsule", "doRestore", { 
+                        vehicleIdStr = tostring(vehicle:getId()), 
+                        data = args.data
+                    })
+                else
+                    -- Fallo de aplicación: no devolver cápsula; conservar la entrada en la
+                    -- nube del cliente y eliminar el vehículo a medio restaurar (evita duplicados)
+                    pcall(function() vehicle:permanentlyRemove() end)
+                    print("[SKOCapsule-Server] Error aplicando datos del vehículo. Vehículo eliminado; entrada conservada.")
+                    sendServerCommand(player, "SKO_Capsule", "restoreFailed", { ok = false })
                 end
-                Events.OnTick.Add(onSpawnTick)
             end
         end
+        Events.OnTick.Add(onSpawnTick)
     end
 end
 

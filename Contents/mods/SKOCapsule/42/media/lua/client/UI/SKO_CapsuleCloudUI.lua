@@ -222,13 +222,11 @@ end
 
 function SKO_CapsuleCloudUI:onSpawn()
     if not self.selectedVehicle then return end
-    local player = getPlayer()
-    local capsule = SKO_CapsuleClient.getCapsuleFromInventory(player)
-    if not capsule then
-        player:Say("Necesito una capsula.")
-        return
-    end
-    restoreVehicle(self.selectedVehicle, capsule)
+    -- Guarda anti doble-click: si ya hay una restauración en curso, ignoramos.
+    if SKO_CapsuleClient.restoreInProgress then return end
+    self.spawnBtn.enable = false
+    -- Restaurar NO exige una cápsula previa: la cápsula se devuelve al confirmar el spawn.
+    restoreVehicle(self.selectedVehicle)
     self:close()
 end
 
