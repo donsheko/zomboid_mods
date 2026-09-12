@@ -200,17 +200,24 @@ function SKOLib.Serializer.serializeItemData(item, worldObj)
     end
 
     if instanceof(item, "Food") then
-        data.food = {
-            age = item:getAge(), cooked = item:isCooked(), burnt = item:isBurnt(),
-            frozenTime = item:getFrozenTime(), poison = item:getPoisonPower(),
-            hung = item:getHungChange()
-        }
-        pcall(function()
-            data.food.calories = item:getCalories()
-            data.food.carbs = item:getCarbohydrates()
-            data.food.lipids = item:getLipids()
-            data.food.proteins = item:getProteins()
-        end)
+        -- Defensa B42: cada atributo Food se serializa SOLO si el método existe.
+        -- La API vanilla B42 NO expone getFrozenTime() (crash "Object tried to call nil"
+        -- al encapsular Base.Gum). El progreso de congelación real es getFreezingTime().
+        data.food = {}
+        if type(item.getAge) == "function" then data.food.age = item:getAge() end
+        if type(item.isCooked) == "function" then data.food.cooked = item:isCooked() end
+        if type(item.isBurnt) == "function" then data.food.burnt = item:isBurnt() end
+        if type(item.getFreezingTime) == "function" then
+            data.food.frozenTime = item:getFreezingTime()
+        elseif type(item.getFrozenTime) == "function" then
+            data.food.frozenTime = item:getFrozenTime()
+        end
+        if type(item.getPoisonPower) == "function" then data.food.poison = item:getPoisonPower() end
+        if type(item.getHungChange) == "function" then data.food.hung = item:getHungChange() end
+        if type(item.getCalories) == "function" then data.food.calories = item:getCalories() end
+        if type(item.getCarbohydrates) == "function" then data.food.carbs = item:getCarbohydrates() end
+        if type(item.getLipids) == "function" then data.food.lipids = item:getLipids() end
+        if type(item.getProteins) == "function" then data.food.proteins = item:getProteins() end
     end
 
     if item.getNumberOfPages and item:getNumberOfPages() > 0 then
@@ -328,16 +335,31 @@ function SKOLib.Serializer.deserializeItemData(itemData)
 
     if itemData.food and instanceof(newItem, "Food") then
         local f = itemData.food
-        newItem:setAge(f.age or 0)
-        newItem:setCooked(f.cooked or false)
-        newItem:setBurnt(f.burnt or false)
-        newItem:setFrozenTime(f.frozenTime or 0)
-        newItem:setPoisonPower(f.poison or 0)
-        newItem:setHungChange(f.hung or newItem:getHungChange())
-        newItem:setCalories(f.calories or 0)
-        newItem:setCarbohydrates(f.carbs or 0)
-        newItem:setLipids(f.lipids or 0)
-        newItem:setProteins(f.proteins or 0)
+        -- Defensa B42: aplicar SOLO setters disponibles. setFrozenTime() NO existe
+        -- en la API vanilla (crash al reconstruir Base.Gum); el B42 expone setFreezingTime().
+        -- Solo se aplica frozenTime si fue serializado (evita resetear el estado por defecto).
+        if type(newItem.setAge) == "function" then pcall(function() newItem:setAge(f.age or 0) end) end
+        if type(newItem.setCooked) == "function" then pcall(function() newItem:setCooked(f.cooked or false) end) end
+        if type(newItem.setBurnt) == "function" then pcall(function() newItem:setBurnt(f.burnt or false) end) end
+        if f.frozenTime ~= nil then
+            if type(newItem.setFreezingTime) == "function" then
+                pcall(function() newItem:setFreezingTime(f.frozenTime) end)
+            elseif type(newItem.setFrozenTime) == "function" then
+                pcall(function() newItem:setFrozenTime(f.frozenTime) end)
+            end
+        end
+        if type(newItem.setPoisonPower) == "function" then pcall(function() newItem:setPoisonPower(f.poison or 0) end) end
+        if type(newItem.setHungChange) == "function" then
+            local hungValue = f.hung
+            if hungValue == nil and type(newItem.getHungChange) == "function" then
+                hungValue = newItem:getHungChange()
+            end
+            pcall(function() newItem:setHungChange(hungValue or 0) end)
+        end
+        if type(newItem.setCalories) == "function" then pcall(function() newItem:setCalories(f.calories or 0) end) end
+        if type(newItem.setCarbohydrates) == "function" then pcall(function() newItem:setCarbohydrates(f.carbs or 0) end) end
+        if type(newItem.setLipids) == "function" then pcall(function() newItem:setLipids(f.lipids or 0) end) end
+        if type(newItem.setProteins) == "function" then pcall(function() newItem:setProteins(f.proteins or 0) end) end
     end
 
     if itemData.literature and newItem:getNumberOfPages() > 0 then
